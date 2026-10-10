@@ -66,11 +66,16 @@ export class CursorManager {
 
       rawX = clampedX * viewport.width;
       rawY = clampedY * viewport.height;
+    } else if (landmarks.rightHand && landmarks.rightHand.length > 0) {
+      const hand = landmarks.rightHand[0];
+      if (hand) {
+        rawX = hand.x * viewport.width;
+        rawY = hand.y * viewport.height;
+      }
     } else if (landmarks.face && landmarks.face.length > 0) {
       // Fallback: use nose tip / face landmark 4
       const nose = landmarks.face[4] ?? landmarks.face[0];
       if (nose) {
-        // Mirrored webcam tracking: 1 - x
         rawX = (1 - nose.x) * viewport.width;
         rawY = nose.y * viewport.height;
       }

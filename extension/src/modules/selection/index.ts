@@ -56,8 +56,8 @@ export class SelectionManager {
       return null;
     }
 
-    // 1. Gesture click (immediate if pinch or blink_both detected)
-    if (gestures.includes("pinch") || gestures.includes("blink_both")) {
+    // 1. Gesture click (immediate if open_palm or pinch detected)
+    if (gestures.includes("open_palm") || gestures.includes("pinch") || gestures.includes("blink_both")) {
       this.lastSelectionTime = timestamp;
       this.reset();
       return {
