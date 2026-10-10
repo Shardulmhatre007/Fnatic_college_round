@@ -5,13 +5,28 @@
 | M0 — Scaffold, CI, ADRs, shared contracts | ✅ Done | All files created; first commit on `develop`. |
 | M1 — Tracking, cursor, dwell, calibration | ✅ Done | One Euro filter, cursor manager, dwell click, overlay, calibration tested. |
 | M2 — Voice, dictation, number overlay, EN+HI | ✅ Done | Web Speech recognition, English & Hindi grammar, dictation, number overlay tested. |
-| M3 — Control panel | ⏳ Not started | Blocked on: M2 done. Owner: Frontend Agent. |
+| M3 — Control panel | ✅ Done | React options control panel, side panel, live settings sync, and profiles tested. |
 | M4 — Onboarding tutorial | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
 | M5 — Rituals | ⏳ Not started | Blocked on: M3 done. Owner: Frontend + Integration. |
 | M6 — Point-and-say fusion, intent filter, fatigue | ⏳ Not started | Blocked on: M2 done. Owner: Integration Agent. |
 | M7 — Benchmark module | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
 | M8 — Backend: auth, sync, rituals, LLM, STT | ⏳ Not started | Blocked on: M5 done. Owner: Backend Agent. |
 | M9 — Polish, docs, packaging, demo | ⏳ Not started | Blocked on: M8 done. Owner: All. |
+
+## M3 Details
+
+**Done when:** React options control panel and side panel open cleanly; commands, gestures, profiles, and language switch apply and persist to storage; dark mode UI with Inter and Outfit typography.
+
+**Verification steps:**
+1. `cd extension && npm run type-check` — zero type errors.
+2. `cd extension && npm test` — 33 unit tests pass across 7 test suites.
+3. `cd extension && npm run build` — bundles `options.html` and `sidepanel.html` alongside background worker and content scripts.
+
+**Handoff:**
+- Agent: Frontend Agent
+- Changed: `entrypoints/options/` (App.tsx, main.tsx, style.css, index.html), `entrypoints/sidepanel/` (App.tsx, main.tsx, index.html).
+- Open items: Onboarding interactive tutorial in M4.
+- Contract changes: None.
 
 ## M2 Details
 
