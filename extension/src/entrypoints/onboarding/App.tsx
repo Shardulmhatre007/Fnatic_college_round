@@ -2,8 +2,13 @@ import React, { useEffect, useRef, useState } from "react";
 import { soundEffects } from "./audio";
 import { saveSettings } from "@/shared/storage";
 import { FastCameraTracker } from "@/modules/tracking/fast-tracker";
+import {
+  MediaPipeFaceTracker,
+  type HeadTracker,
+} from "@/modules/tracking/mediapipe-face-tracker";
 import { updateCursor, type ViewportSize } from "@/modules/cursor/index";
 import { feedFrame, type SelectionEvent } from "@/modules/selection/index";
+import type { LandmarkResult } from "@/shared/types";
 
 interface Bubble {
   id: number;
@@ -18,9 +23,11 @@ export const OnboardingApp: React.FC = () => {
   const [permissionGranted, setPermissionGranted] = useState<boolean>(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
-  // Active camera preview stream & fast tracker
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const trackerRef = useRef<FastCameraTracker | null>(null);
+  // Hidden, always-mounted video used as the tracking source; the visible preview
+  // reuses the same stream so the tracker never points at an unmounted element.
+  const trackerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const trackerRef = useRef<HeadTracker | null>(null);
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
 
   // Virtual cursor position & dwell state for on-screen tracking
@@ -40,69 +47,114 @@ export const OnboardingApp: React.FC = () => {
   const [voiceTestPassed, setVoiceTestPassed] = useState<boolean>(false);
   const [gestureTestPassed, setGestureTestPassed] = useState<boolean>(false);
 
-  // Bind active stream to video element and initialize real-time camera tracking loop
+  // Expose the current step to the tracker callback without recreating the tracker.
+  const stepRef = useRef<number>(step);
   useEffect(() => {
-    if (videoRef.current && activeStream) {
-      videoRef.current.srcObject = activeStream;
-      void videoRef.current.play().catch(() => {});
+    stepRef.current = step;
+  }, [step]);
 
-      if (!trackerRef.current) {
-        trackerRef.current = new FastCameraTracker(videoRef.current);
-        trackerRef.current.start((landmarks) => {
-          const viewport: ViewportSize = {
-            width: window.innerWidth,
-            height: window.innerHeight,
-          };
-          const pos = updateCursor(landmarks, viewport);
-          setCursorPos(pos);
-          setCursorVisible(true);
+  // Bind the stream to the hidden source video and start the tracker exactly once.
+  useEffect(() => {
+    const sourceVideo = trackerVideoRef.current;
+    if (!activeStream || !sourceVideo) return;
 
-          if (landmarks.gestures.length > 0) {
-            setActiveGesture(landmarks.gestures.join(", "));
-          } else {
-            setActiveGesture("Head Tracking (Active)");
-          }
+    sourceVideo.srcObject = activeStream;
+    void sourceVideo.play().catch(() => {});
 
-          // In Step 2: check if virtual cursor hits any bubble
-          if (step === 2) {
-            setBubbles((prev) =>
-              prev.map((b) => {
-                if (b.popped) return b;
-                const bubblePxX = (b.x / 100) * window.innerWidth;
-                const bubblePxY = (b.y / 100) * window.innerHeight;
-                const dist = Math.hypot(pos.x - bubblePxX, pos.y - bubblePxY);
-                if (dist < 60) {
-                  soundEffects.playBubblePop();
-                  return { ...b, popped: true };
-                }
-                return b;
-              })
-            );
-          }
+    const handleFrame = (landmarks: LandmarkResult) => {
+      const viewport: ViewportSize = {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+      const pos = updateCursor(landmarks, viewport);
+      setCursorPos(pos);
+      setCursorVisible(true);
 
-          // In Step 3: check dwell selection
-          if (step === 3) {
-            const sel: SelectionEvent | null = feedFrame(pos, landmarks.gestures, landmarks.timestamp);
-            if (sel) {
-              soundEffects.playStepSuccess();
-              setGestureTestPassed(true);
-            }
-          }
-        });
+      if (landmarks.gestures.length > 0) {
+        setActiveGesture(landmarks.gestures.join(", "));
+      } else {
+        setActiveGesture("Head Tracking (Active)");
       }
+
+      const currentStep = stepRef.current;
+
+      // Step 2: pop bubbles the virtual cursor passes over.
+      if (currentStep === 2) {
+        setBubbles((prev) =>
+          prev.map((b) => {
+            if (b.popped) return b;
+            const bubblePxX = (b.x / 100) * window.innerWidth;
+            const bubblePxY = (b.y / 100) * window.innerHeight;
+            const dist = Math.hypot(pos.x - bubblePxX, pos.y - bubblePxY);
+            if (dist < 60) {
+              soundEffects.playBubblePop();
+              return { ...b, popped: true };
+            }
+            return b;
+          })
+        );
+      }
+
+      // Step 3: dwell or nod selection.
+      if (currentStep === 3) {
+        const sel: SelectionEvent | null = feedFrame(pos, landmarks.gestures, landmarks.timestamp);
+        if (sel) {
+          soundEffects.playStepSuccess();
+          setGestureTestPassed(true);
+        }
+      }
+    };
+
+    let tracker: HeadTracker | null = null;
+    let cancelled = false;
+
+    const startTracking = async () => {
+      const faceTracker = new MediaPipeFaceTracker(sourceVideo);
+      try {
+        await faceTracker.load();
+        if (cancelled) return;
+        faceTracker.start(handleFrame);
+        tracker = faceTracker;
+      } catch (err) {
+        // Fall back to the lightweight optical tracker if the model cannot load.
+        console.warn("MediaPipe face tracker unavailable, using optical fallback", err);
+        if (cancelled) return;
+        const optical = new FastCameraTracker(sourceVideo);
+        optical.start(handleFrame);
+        tracker = optical;
+      }
+      trackerRef.current = tracker;
+    };
+
+    void startTracking();
+
+    return () => {
+      cancelled = true;
+      tracker?.stop();
+      trackerRef.current = null;
+    };
+  }, [activeStream]);
+
+  // Feed the visible preview element with the same stream when it mounts per step.
+  useEffect(() => {
+    const el = previewVideoRef.current;
+    if (el && activeStream) {
+      el.srcObject = activeStream;
+      void el.play().catch(() => {});
     }
   }, [activeStream, step]);
 
-  // Clean up media tracks and tracker
+  // Re-centre the neutral reference when the calibration game begins.
+  useEffect(() => {
+    if (step === 2) {
+      trackerRef.current?.calibrateNeutral();
+    }
+  }, [step]);
+
+  // Stop camera tracks when the stream changes or the page unmounts.
   useEffect(() => {
     return () => {
-      if (trackerRef.current) {
-        trackerRef.current.stop();
-        trackerRef.current = null;
-      }
-      if (activeStream) {
-        activeStream.getTracks().forEach((track) => track.stop());
-      }
+      activeStream?.getTracks().forEach((track) => track.stop());
     };
   }, [activeStream]);
 
@@ -165,6 +217,11 @@ export const OnboardingApp: React.FC = () => {
         >
           <div className="w-1.5 h-1.5 rounded-full bg-white shadow-sm animate-ping" />
         </div>
+      )}
+
+      {/* Hidden tracking source; kept mounted across steps so the tracker never detaches. */}
+      {activeStream && (
+        <video ref={trackerVideoRef} autoPlay playsInline muted className="hidden" />
       )}
 
       {/* Top Header */}
@@ -242,7 +299,7 @@ export const OnboardingApp: React.FC = () => {
                 {/* Live Camera Preview Box */}
                 <div className="relative mx-auto w-72 h-52 rounded-2xl overflow-hidden border-2 border-indigo-500/40 shadow-xl bg-slate-900">
                   <video
-                    ref={videoRef}
+                    ref={previewVideoRef}
                     autoPlay
                     playsInline
                     muted
@@ -287,7 +344,7 @@ export const OnboardingApp: React.FC = () => {
               {activeStream && (
                 <div className="relative w-40 h-28 rounded-xl overflow-hidden border border-indigo-500/40 shadow-lg bg-black">
                   <video
-                    ref={videoRef}
+                    ref={previewVideoRef}
                     autoPlay
                     playsInline
                     muted
