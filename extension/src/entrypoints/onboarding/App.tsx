@@ -1,6 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
 import { soundEffects } from "./audio";
 import { saveSettings } from "@/shared/storage";
+import { FastCameraTracker } from "@/modules/tracking/fast-tracker";
+import { updateCursor, type ViewportSize } from "@/modules/cursor/index";
+import { feedFrame, type SelectionEvent } from "@/modules/selection/index";
 
 interface Bubble {
   id: number;
@@ -15,9 +18,15 @@ export const OnboardingApp: React.FC = () => {
   const [permissionGranted, setPermissionGranted] = useState<boolean>(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
-  // Active camera preview stream
+  // Active camera preview stream & fast tracker
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const trackerRef = useRef<FastCameraTracker | null>(null);
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
+
+  // Virtual cursor position & dwell state for on-screen tracking
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number }>({ x: 400, y: 300 });
+  const [cursorVisible, setCursorVisible] = useState<boolean>(false);
+  const [activeGesture, setActiveGesture] = useState<string>("Head Motion");
 
   // Bubble-pop calibration targets
   const [bubbles, setBubbles] = useState<Bubble[]>([
@@ -31,24 +40,73 @@ export const OnboardingApp: React.FC = () => {
   const [voiceTestPassed, setVoiceTestPassed] = useState<boolean>(false);
   const [gestureTestPassed, setGestureTestPassed] = useState<boolean>(false);
 
-  // Bind active stream to video element whenever step changes or stream initializes
+  // Bind active stream to video element and initialize real-time camera tracking loop
   useEffect(() => {
     if (videoRef.current && activeStream) {
       videoRef.current.srcObject = activeStream;
       void videoRef.current.play().catch(() => {});
+
+      if (!trackerRef.current) {
+        trackerRef.current = new FastCameraTracker(videoRef.current);
+        trackerRef.current.start((landmarks) => {
+          const viewport: ViewportSize = {
+            width: window.innerWidth,
+            height: window.innerHeight,
+          };
+          const pos = updateCursor(landmarks, viewport);
+          setCursorPos(pos);
+          setCursorVisible(true);
+
+          if (landmarks.gestures.length > 0) {
+            setActiveGesture(landmarks.gestures.join(", "));
+          } else {
+            setActiveGesture("Head Tracking (Active)");
+          }
+
+          // In Step 2: check if virtual cursor hits any bubble
+          if (step === 2) {
+            setBubbles((prev) =>
+              prev.map((b) => {
+                if (b.popped) return b;
+                const bubblePxX = (b.x / 100) * window.innerWidth;
+                const bubblePxY = (b.y / 100) * window.innerHeight;
+                const dist = Math.hypot(pos.x - bubblePxX, pos.y - bubblePxY);
+                if (dist < 60) {
+                  soundEffects.playBubblePop();
+                  return { ...b, popped: true };
+                }
+                return b;
+              })
+            );
+          }
+
+          // In Step 3: check dwell selection
+          if (step === 3) {
+            const sel: SelectionEvent | null = feedFrame(pos, landmarks.gestures, landmarks.timestamp);
+            if (sel) {
+              soundEffects.playStepSuccess();
+              setGestureTestPassed(true);
+            }
+          }
+        });
+      }
     }
   }, [activeStream, step]);
 
-  // Clean up media tracks when unmounting
+  // Clean up media tracks and tracker
   useEffect(() => {
     return () => {
+      if (trackerRef.current) {
+        trackerRef.current.stop();
+        trackerRef.current = null;
+      }
       if (activeStream) {
         activeStream.getTracks().forEach((track) => track.stop());
       }
     };
   }, [activeStream]);
 
-  // 1. Request camera & mic permission and keep camera feed active
+  // 1. Request camera & mic permission
   const handleRequestPermissions = async () => {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -73,7 +131,7 @@ export const OnboardingApp: React.FC = () => {
     }
   };
 
-  // 2. Handle bubble click / head hover pop
+  // 2. Handle bubble click fallback
   const handlePopBubble = (id: number) => {
     soundEffects.playBubblePop();
     const updated = bubbles.map((b) => (b.id === id ? { ...b, popped: true } : b));
@@ -96,9 +154,21 @@ export const OnboardingApp: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500 selection:text-white font-sans">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500 selection:text-white font-sans relative overflow-x-hidden">
+      {/* Real-time Handsfree Virtual Cursor */}
+      {cursorVisible && (
+        <div
+          style={{
+            transform: `translate3d(${cursorPos.x}px, ${cursorPos.y}px, 0)`,
+          }}
+          className="fixed top-0 left-0 pointer-events-none z-50 -ml-3 -mt-3 w-7 h-7 rounded-full bg-cyan-400/40 border-2 border-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.8)] transition-transform duration-[40ms] ease-out flex items-center justify-center"
+        >
+          <div className="w-1.5 h-1.5 rounded-full bg-white shadow-sm animate-ping" />
+        </div>
+      )}
+
       {/* Top Header */}
-      <header className="px-8 py-5 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md flex items-center justify-between">
+      <header className="px-8 py-5 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md flex items-center justify-between z-10">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-lg text-white shadow-lg shadow-indigo-500/20">
             H
@@ -109,25 +179,35 @@ export const OnboardingApp: React.FC = () => {
           </div>
         </div>
 
-        {/* Step indicator pills */}
-        <div className="flex items-center gap-2">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div
-              key={i}
-              className={`h-2.5 rounded-full transition-all duration-300 ${
-                i === step
-                  ? "w-8 bg-indigo-500 shadow-md shadow-indigo-500/40"
-                  : i < step
-                  ? "w-2.5 bg-emerald-500"
-                  : "w-2.5 bg-slate-800"
-              }`}
-            />
-          ))}
+        {/* Live HUD Pill showing current tracking state */}
+        <div className="flex items-center gap-4">
+          {permissionGranted && (
+            <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-full text-xs text-slate-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>{activeGesture}</span>
+            </div>
+          )}
+
+          {/* Step indicator pills */}
+          <div className="flex items-center gap-2">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div
+                key={i}
+                className={`h-2.5 rounded-full transition-all duration-300 ${
+                  i === step
+                    ? "w-8 bg-indigo-500 shadow-md shadow-indigo-500/40"
+                    : i < step
+                    ? "w-2.5 bg-emerald-500"
+                    : "w-2.5 bg-slate-800"
+                }`}
+              />
+            ))}
+          </div>
         </div>
       </header>
 
       {/* Main interactive area */}
-      <main className="flex-1 max-w-4xl w-full mx-auto p-8 flex flex-col justify-center">
+      <main className="flex-1 max-w-4xl w-full mx-auto p-8 flex flex-col justify-center z-10">
         {/* Step 1: Camera & Microphone Permissions */}
         {step === 1 && (
           <div className="text-center space-y-6 max-w-xl mx-auto">
@@ -192,20 +272,20 @@ export const OnboardingApp: React.FC = () => {
           </div>
         )}
 
-        {/* Step 2: 30-Second Bubble-Pop Calibration Game with Mini Camera View */}
+        {/* Step 2: 30-Second Bubble-Pop Calibration Game with Active Head Tracking */}
         {step === 2 && (
           <div className="relative min-h-[500px] rounded-2xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between overflow-hidden backdrop-blur shadow-2xl">
             <div className="flex items-center justify-between z-20">
               <div>
                 <h2 className="text-2xl font-bold text-white font-display">Pop the 5 Calibration Bubbles</h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Click or hover over each bubble with your head/mouse to calibrate screen boundaries.
+                  Move your head to glide the cyan glowing cursor over each bubble, or click them.
                 </p>
               </div>
 
               {/* PiP Camera Preview */}
               {activeStream && (
-                <div className="relative w-36 h-24 rounded-xl overflow-hidden border border-indigo-500/40 shadow-lg bg-black">
+                <div className="relative w-40 h-28 rounded-xl overflow-hidden border border-indigo-500/40 shadow-lg bg-black">
                   <video
                     ref={videoRef}
                     autoPlay
@@ -214,7 +294,7 @@ export const OnboardingApp: React.FC = () => {
                     className="w-full h-full object-cover scale-x-[-1]"
                   />
                   <div className="absolute bottom-1 right-1.5 text-[9px] bg-black/70 px-1.5 py-0.5 rounded text-indigo-300 font-medium">
-                    Tracking
+                    Tracking Face
                   </div>
                 </div>
               )}
@@ -276,9 +356,29 @@ export const OnboardingApp: React.FC = () => {
             <div>
               <h2 className="text-3xl font-extrabold text-white font-display">Dwell or Nod to Click</h2>
               <p className="text-sm text-slate-400 mt-2">
-                Rest your cursor on any target for 800 ms to trigger a dwell click, or give a quick
+                Rest your head cursor on any target for 800 ms to trigger a dwell click, or give a quick
                 nod to select immediately without waiting.
               </p>
+            </div>
+
+            {/* Gesture Guide Demo Cards */}
+            <div className="grid grid-cols-2 gap-3 text-left">
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60">
+                <div className="font-semibold text-xs text-indigo-400 flex items-center gap-1.5">
+                  <span>⏱️</span> Dwell Click
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  Keep your head cursor stationary over any button for <strong>800 ms</strong> to click automatically.
+                </div>
+              </div>
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60">
+                <div className="font-semibold text-xs text-cyan-400 flex items-center gap-1.5">
+                  <span>👇</span> Nod to Select
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  A subtle downward head nod immediately confirms the selection without waiting for the timer.
+                </div>
+              </div>
             </div>
 
             <div className="p-8 rounded-2xl border border-slate-800 bg-slate-900/40 flex items-center justify-center gap-4">
@@ -293,7 +393,7 @@ export const OnboardingApp: React.FC = () => {
                     : "bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40"
                 }`}
               >
-                {gestureTestPassed ? "✓ Target Activated!" : "Test Target: Click or Dwell Here"}
+                {gestureTestPassed ? "✓ Target Activated!" : "Test Target: Dwell (Hold Still) or Click Here"}
               </button>
             </div>
 
