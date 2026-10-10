@@ -12,3 +12,4 @@ This document supports the Chrome Web Store review process.
 | `sidePanel` | Show the quick-toggle side panel without navigating away from the current page. |
 | `scripting` | Dynamically inject the overlay and number badge scripts into pages. Required to render in-page UI without declaring host permissions for every site. |
 | `host_permissions: <all_urls>` | Inject the content script (overlay, element resolver, voice host) into any page the user navigates to. Without this the extension would only work on pre-declared domains. Minimal data is read; no data is sent off-device. |
+This is a test msg
