@@ -3,7 +3,7 @@
 | Milestone | Status | Notes |
 |---|---|---|
 | M0 — Scaffold, CI, ADRs, shared contracts | ✅ Done | All files created; first commit on `develop`. |
-| M1 — Tracking, cursor, dwell, calibration | ⏳ Not started | Blocked on: none. Owner: Frontend Agent. |
+| M1 — Tracking, cursor, dwell, calibration | ✅ Done | One Euro filter, cursor manager, dwell click, overlay, calibration tested. |
 | M2 — Voice, dictation, number overlay, EN+HI | ⏳ Not started | Blocked on: M1 done. Owner: Frontend Agent. |
 | M3 — Control panel | ⏳ Not started | Blocked on: M2 done. Owner: Frontend Agent. |
 | M4 — Onboarding tutorial | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
@@ -12,6 +12,21 @@
 | M7 — Benchmark module | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
 | M8 — Backend: auth, sync, rituals, LLM, STT | ⏳ Not started | Blocked on: M5 done. Owner: Backend Agent. |
 | M9 — Polish, docs, packaging, demo | ⏳ Not started | Blocked on: M8 done. Owner: All. |
+
+## M1 Details
+
+**Done when:** Head moves the cursor on a test page; One Euro filter eliminates jitter; dwell click activates targets; 5-target calibration and drift detection work under 30 s.
+
+**Verification steps:**
+1. `cd extension && npm run type-check` — zero type errors.
+2. `cd extension && npm test` — all 26 unit tests pass across 6 test suites.
+3. `cd extension && npm run build` — extension bundles with content-scripts and background service worker.
+
+**Handoff:**
+- Agent: Frontend Agent
+- Changed: `cursor/` (OneEuroFilter, CursorManager, config), `selection/` (SelectionManager, dwell, nod/pinch), `overlay/` (Shadow DOM isolated cursor, dwell ring, number badges, HUD), `calibration/` (CalibrationManager, drift detection), `tracking/` (head pose, gesture detection), `entrypoints/content.ts` (tracking message listener).
+- Open items: MediaPipe worker initialization offscreen document connection for live camera feed.
+- Contract changes: None.
 
 ## M0 Details
 

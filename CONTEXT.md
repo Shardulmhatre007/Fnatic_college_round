@@ -28,19 +28,21 @@ The interface and the voice grammar support **English** and **Hindi** (including
 | Stack decision | Done (confirmed by owner) |
 | Documents (CONTEXT, PROMPT, AGENTS, RULES) | Done |
 | Repository scaffold | **Done (M0)** — all directories, CI, ADRs, shared contracts |
-| Extension code | In progress — M1 assigned to Frontend Agent |
+| Extension code | **M1 Done** (Tracking, cursor, dwell, calibration, overlay); M2 next |
 | Backend code | In progress — M8 planned; health endpoint skeleton done |
-| Tests, docs, CI | Scaffold done; feature tests start in M1 |
+| Tests, docs, CI | M0 & M1 unit tests passing (26/26 tests passing) |
 
-No application feature code exists yet. The Frontend Agent starts M1 (tracking, cursor, calibration).
+M1 tracking, One Euro cursor filter, dwell selection, overlay, and calibration modules are complete. Next is M2 (Voice commands, dictation, number overlay, EN+HI).
 
-### M0 verification
+### M0 & M1 verification
 
 - ✅ `backend/tests/test_health.py` passes (1 passed)
 - ✅ `shared/types.ts` and `shared/schemas.ts` published
 - ✅ ADRs 0001–0004 recorded in `docs/adr/`
 - ✅ CI workflows: `.github/workflows/ci-extension.yml` and `ci-backend.yml`
-- ⏳ Extension type-check and unit tests pending `npm install` completion
+- ✅ Extension type-check clean (`tsc --noEmit` exits with 0)
+- ✅ Extension test suites passing: 6 test suites, 26 unit tests
+- ✅ Extension bundle builds cleanly via WXT (`npm run build`)
 
 
 ## 3. Confirmed Technology Stack
