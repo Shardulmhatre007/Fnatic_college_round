@@ -19,9 +19,9 @@ export interface CursorConfig {
 }
 
 export const DEFAULT_CURSOR_CONFIG: Readonly<CursorConfig> = Object.freeze({
-  filterMinCutoff: 1.0,
-  filterBeta: 0.007,
-  filterDcutoff: 1.0,
+  filterMinCutoff: 1.5,
+  filterBeta: 0.025,
+  filterDcutoff: 1.2,
   snapRadiusPx: 24,
   snapStrength: 0.65,
   deadzoneThreshold: 0.002,

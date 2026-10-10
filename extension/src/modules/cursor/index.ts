@@ -58,7 +58,7 @@ export class CursorManager {
       const relYaw = landmarks.headPose.yaw - this.calibratedNeutral.yaw;
       const relPitch = landmarks.headPose.pitch - this.calibratedNeutral.pitch;
 
-      const normX = 0.5 - relYaw * this.sensitivity.x * 0.02;
+      const normX = 0.5 + relYaw * this.sensitivity.x * 0.02;
       const normY = 0.5 + relPitch * this.sensitivity.y * 0.02;
 
       const clampedX = Math.min(Math.max(normX, 0), 1);
