@@ -8,6 +8,10 @@ export default defineConfig({
     version: "0.1.0",
     description:
       "Browse the web with your webcam and voice. Built for users with motor impairments.",
+    // MediaPipe compiles a bundled WebAssembly model on the extension page.
+    content_security_policy: {
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
+    },
     permissions: [
       "storage",
       "tabs",

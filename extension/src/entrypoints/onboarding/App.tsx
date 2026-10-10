@@ -1,9 +1,14 @@
 import React, { useEffect, useRef, useState } from "react";
 import { soundEffects } from "./audio";
 import { saveSettings } from "@/shared/storage";
-import { HandGestureTracker } from "@/modules/tracking/hand-tracker";
+import { FastCameraTracker } from "@/modules/tracking/fast-tracker";
+import {
+  MediaPipeFaceTracker,
+  type HeadTracker,
+} from "@/modules/tracking/mediapipe-face-tracker";
 import { updateCursor, type ViewportSize } from "@/modules/cursor/index";
 import { feedFrame, type SelectionEvent } from "@/modules/selection/index";
+import type { LandmarkResult } from "@/shared/types";
 
 interface Bubble {
   id: number;
@@ -18,15 +23,17 @@ export const OnboardingApp: React.FC = () => {
   const [permissionGranted, setPermissionGranted] = useState<boolean>(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
-  // Video element and dedicated Hand Gesture Tracker
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const trackerRef = useRef<HandGestureTracker | null>(null);
+  // Hidden, always-mounted video used as the tracking source; the visible preview
+  // reuses the same stream so the tracker never points at an unmounted element.
+  const trackerVideoRef = useRef<HTMLVideoElement | null>(null);
+  const previewVideoRef = useRef<HTMLVideoElement | null>(null);
+  const trackerRef = useRef<HeadTracker | null>(null);
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
 
-  // Live on-screen hand cursor
+  // Live on-screen cursor
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number }>({ x: 400, y: 300 });
   const [cursorVisible, setCursorVisible] = useState<boolean>(false);
-  const [activeGesture, setActiveGesture] = useState<string>("2 Fingers Pointing (Move)");
+  const [activeGesture, setActiveGesture] = useState<string>("Head Tracking (Active)");
   const [clickNotice, setClickNotice] = useState<boolean>(false);
 
   // Bubble-pop calibration targets
@@ -41,68 +48,117 @@ export const OnboardingApp: React.FC = () => {
   const [voiceTestPassed, setVoiceTestPassed] = useState<boolean>(false);
   const [gestureTestPassed, setGestureTestPassed] = useState<boolean>(false);
 
-  // Continuous Camera Stream & Hand Tracking Loop
+  // Expose the current step to the tracker callback without recreating the tracker.
+  const stepRef = useRef<number>(step);
   useEffect(() => {
-    if (videoRef.current && activeStream) {
-      videoRef.current.srcObject = activeStream;
-      void videoRef.current.play().catch(() => {});
+    stepRef.current = step;
+  }, [step]);
 
-      if (!trackerRef.current) {
-        trackerRef.current = new HandGestureTracker(videoRef.current);
-        trackerRef.current.start((output) => {
-          const viewport: ViewportSize = {
-            width: window.innerWidth,
-            height: window.innerHeight,
-          };
-          const pos = updateCursor(output.landmarks, viewport);
-          setCursorPos(pos);
-          setCursorVisible(true);
+  // Bind the stream to the hidden source video and start the tracker exactly once.
+  useEffect(() => {
+    const sourceVideo = trackerVideoRef.current;
+    if (!activeStream || !sourceVideo) return;
 
-          if (output.isPalmOpen) {
-            setActiveGesture("✋ Open Palm (Left Click!)");
-            setClickNotice(true);
-            setTimeout(() => setClickNotice(false), 300);
-          } else {
-            setActiveGesture("✌️ 2 Fingers (Move Cursor)");
-          }
+    sourceVideo.srcObject = activeStream;
+    void sourceVideo.play().catch(() => {});
 
-          // Step 2: Pop calibration bubbles using hand cursor
-          setBubbles((prev) =>
-            prev.map((b) => {
-              if (b.popped) return b;
-              const bubblePxX = (b.x / 100) * window.innerWidth;
-              const bubblePxY = (b.y / 100) * window.innerHeight;
-              const dist = Math.hypot(pos.x - bubblePxX, pos.y - bubblePxY);
-              // Touch bubble with cursor or Open Palm over it
-              if (dist < 75) {
-                soundEffects.playBubblePop();
-                return { ...b, popped: true };
-              }
-              return b;
-            })
-          );
+    const handleFrame = (landmarks: LandmarkResult) => {
+      const viewport: ViewportSize = {
+        width: window.innerWidth,
+        height: window.innerHeight,
+      };
+      const pos = updateCursor(landmarks, viewport);
+      setCursorPos(pos);
+      setCursorVisible(true);
 
-          // Step 3: Selection test
-          const sel: SelectionEvent | null = feedFrame(pos, output.landmarks.gestures, output.landmarks.timestamp);
-          if (sel) {
-            soundEffects.playStepSuccess();
-            setGestureTestPassed(true);
-          }
-        });
+      if (landmarks.gestures.length > 0) {
+        setActiveGesture(landmarks.gestures.join(", "));
+        if (landmarks.gestures.includes("nod") || landmarks.gestures.includes("open_palm")) {
+          setClickNotice(true);
+          setTimeout(() => setClickNotice(false), 300);
+        }
+      } else {
+        setActiveGesture("Head Tracking (Active)");
       }
-    }
+
+      const currentStep = stepRef.current;
+
+      // Step 2: pop bubbles the virtual cursor passes over.
+      if (currentStep === 2) {
+        setBubbles((prev) =>
+          prev.map((b) => {
+            if (b.popped) return b;
+            const bubblePxX = (b.x / 100) * window.innerWidth;
+            const bubblePxY = (b.y / 100) * window.innerHeight;
+            const dist = Math.hypot(pos.x - bubblePxX, pos.y - bubblePxY);
+            if (dist < 60) {
+              soundEffects.playBubblePop();
+              return { ...b, popped: true };
+            }
+            return b;
+          })
+        );
+      }
+
+      // Step 3: dwell or nod selection.
+      if (currentStep === 3) {
+        const sel: SelectionEvent | null = feedFrame(pos, landmarks.gestures, landmarks.timestamp);
+        if (sel) {
+          soundEffects.playStepSuccess();
+          setGestureTestPassed(true);
+        }
+      }
+    };
+
+    let tracker: HeadTracker | null = null;
+    let cancelled = false;
+
+    const startTracking = async () => {
+      const faceTracker = new MediaPipeFaceTracker(sourceVideo);
+      try {
+        await faceTracker.load();
+        if (cancelled) return;
+        faceTracker.start(handleFrame);
+        tracker = faceTracker;
+      } catch (err) {
+        console.warn("MediaPipe face tracker unavailable, using optical fallback", err);
+        if (cancelled) return;
+        const optical = new FastCameraTracker(sourceVideo);
+        optical.start(handleFrame);
+        tracker = optical;
+      }
+      trackerRef.current = tracker;
+    };
+
+    void startTracking();
+
+    return () => {
+      cancelled = true;
+      tracker?.stop();
+      trackerRef.current = null;
+    };
   }, [activeStream]);
 
-  // Cleanup on unmount
+  // Feed the visible preview element with the same stream when it mounts per step.
+  useEffect(() => {
+    const el = previewVideoRef.current;
+    if (el && activeStream) {
+      el.srcObject = activeStream;
+      void el.play().catch(() => {});
+    }
+  }, [activeStream, step]);
+
+  // Re-centre the neutral reference when the calibration game begins.
+  useEffect(() => {
+    if (step === 2) {
+      trackerRef.current?.calibrateNeutral();
+    }
+  }, [step]);
+
+  // Stop camera tracks when the stream changes or the page unmounts.
   useEffect(() => {
     return () => {
-      if (trackerRef.current) {
-        trackerRef.current.stop();
-        trackerRef.current = null;
-      }
-      if (activeStream) {
-        activeStream.getTracks().forEach((t) => t.stop());
-      }
+      activeStream?.getTracks().forEach((track) => track.stop());
     };
   }, [activeStream]);
 
@@ -125,7 +181,7 @@ export const OnboardingApp: React.FC = () => {
       }
     } catch {
       setPermissionError(
-        "Camera access was dismissed or blocked. You can still test with simulated hand controls."
+        "Camera access was dismissed or blocked. You can still test with simulated controls."
       );
       setPermissionGranted(true);
     }
@@ -152,21 +208,7 @@ export const OnboardingApp: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500 selection:text-white font-sans relative overflow-x-hidden">
-      {/* Persistent Live Video Feed for unbroken tracking across all steps */}
-      <div className="fixed bottom-4 right-4 z-40 w-44 h-32 rounded-2xl overflow-hidden border-2 border-indigo-500/50 shadow-2xl bg-black backdrop-blur-md">
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted
-          className="w-full h-full object-cover scale-x-[-1]"
-        />
-        <div className="absolute top-2 left-2 flex items-center gap-1.5 bg-black/70 px-2 py-0.5 rounded-full text-[10px] text-emerald-400 font-semibold border border-emerald-500/30">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" /> Hand Camera
-        </div>
-      </div>
-
-      {/* Responsive Virtual Hand Cursor */}
+      {/* Responsive Virtual Cursor */}
       {cursorVisible && (
         <div
           style={{
@@ -178,8 +220,13 @@ export const OnboardingApp: React.FC = () => {
               : "bg-cyan-500/40 border-2 border-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.8)]"
           }`}
         >
-          <div className="text-[12px]">{clickNotice ? "💥" : "✌️"}</div>
+          <div className="text-[12px]">{clickNotice ? "💥" : "🎯"}</div>
         </div>
+      )}
+
+      {/* Hidden tracking source; kept mounted across steps so the tracker never detaches. */}
+      {activeStream && (
+        <video ref={trackerVideoRef} autoPlay playsInline muted className="hidden" />
       )}
 
       {/* Top Header */}
@@ -190,11 +237,11 @@ export const OnboardingApp: React.FC = () => {
           </div>
           <div>
             <h1 className="font-bold text-lg tracking-wide text-white font-display">Handsfree</h1>
-            <p className="text-xs text-slate-400">Hand Gestures Control</p>
+            <p className="text-xs text-slate-400">Head Tracking & Voice Control</p>
           </div>
         </div>
 
-        {/* Live HUD Pill showing hand status */}
+        {/* Live HUD Pill showing tracking status */}
         <div className="flex items-center gap-4">
           {permissionGranted && (
             <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-full text-xs text-slate-200">
@@ -226,15 +273,15 @@ export const OnboardingApp: React.FC = () => {
         {step === 1 && (
           <div className="text-center space-y-6 max-w-xl mx-auto">
             <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400">
-              ✋
+              👤
             </div>
             <div>
               <h2 className="text-3xl font-extrabold tracking-tight text-white font-display">
-                Hand Gesture Control
+                Head Tracking & Voice Control
               </h2>
               <p className="text-sm text-slate-400 mt-2 leading-relaxed">
-                Control your screen naturally with your hand. Point with <strong>2 fingers</strong> to move
-                the cursor, and <strong>open your palm</strong> to left click!
+                Control your screen naturally with subtle head movements and speech commands.
+                All camera processing runs 100% locally on your device.
               </p>
             </div>
 
@@ -249,12 +296,26 @@ export const OnboardingApp: React.FC = () => {
                 onClick={handleRequestPermissions}
                 className="px-6 py-3.5 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/30 transition transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
               >
-                Start Camera & Hand Tracking
+                Allow Camera & Mic Access
               </button>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
+                {/* Live Camera Preview Box */}
+                <div className="relative mx-auto w-72 h-52 rounded-2xl overflow-hidden border-2 border-indigo-500/40 shadow-xl bg-slate-900">
+                  <video
+                    ref={previewVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] text-emerald-400 font-semibold border border-emerald-500/30">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> Live Camera
+                  </div>
+                </div>
+
                 <div className="inline-flex items-center gap-2 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl text-sm font-medium">
-                  <span>✓</span> Hand Tracking Active
+                  <span>✓</span> Tracking Active
                 </div>
                 <div>
                   <button
@@ -275,11 +336,29 @@ export const OnboardingApp: React.FC = () => {
         {/* Step 2: Bubble Pop Calibration */}
         {step === 2 && (
           <div className="relative min-h-[500px] rounded-2xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between overflow-hidden backdrop-blur shadow-2xl">
-            <div className="z-20">
-              <h2 className="text-2xl font-bold text-white font-display">Pop the 5 Calibration Bubbles</h2>
-              <p className="text-xs text-slate-400 mt-1">
-                Move your hand with <strong>2 fingers</strong> across the camera to glide the cursor over the bubbles.
-              </p>
+            <div className="flex items-center justify-between z-20">
+              <div>
+                <h2 className="text-2xl font-bold text-white font-display">Pop the 5 Calibration Bubbles</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Move your head to glide the cyan glowing cursor over each bubble, or click them.
+                </p>
+              </div>
+
+              {/* PiP Camera Preview */}
+              {activeStream && (
+                <div className="relative w-40 h-28 rounded-xl overflow-hidden border border-indigo-500/40 shadow-lg bg-black">
+                  <video
+                    ref={previewVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                  <div className="absolute bottom-1 right-1.5 text-[9px] bg-black/70 px-1.5 py-0.5 rounded text-indigo-300 font-medium">
+                    Tracking Face
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Floating bubbles */}
@@ -323,22 +402,22 @@ export const OnboardingApp: React.FC = () => {
                     : "bg-slate-800 text-slate-500 cursor-not-allowed"
                 }`}
               >
-                Next Step: Palm Click →
+                Next Step: Select & Click →
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Open Palm Click Test */}
+        {/* Step 3: Dwell / Nod Click Test */}
         {step === 3 && (
           <div className="text-center space-y-6 max-w-xl mx-auto">
             <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400">
-              ✋
+              🎯
             </div>
             <div>
-              <h2 className="text-3xl font-extrabold text-white font-display">Open Palm to Left Click</h2>
+              <h2 className="text-3xl font-extrabold text-white font-display">Nod or Dwell to Select</h2>
               <p className="text-sm text-slate-400 mt-2">
-                Move your hand over the button below and <strong>open your palm</strong> towards the camera to click!
+                Move your cursor over the button below and <strong>dwell (hold still)</strong> or <strong>nod</strong> to click!
               </p>
             </div>
 
@@ -354,7 +433,7 @@ export const OnboardingApp: React.FC = () => {
                     : "bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40"
                 }`}
               >
-                {gestureTestPassed ? "✓ Palm Click Confirmed!" : "Test Target: Open Palm or Click Here"}
+                {gestureTestPassed ? "✓ Selection Confirmed!" : "Test Target: Dwell or Nod Here"}
               </button>
             </div>
 
@@ -384,15 +463,15 @@ export const OnboardingApp: React.FC = () => {
             <div>
               <h2 className="text-3xl font-extrabold text-white font-display">Voice Commands in Action</h2>
               <p className="text-sm text-slate-400 mt-2">
-                Handsfree pairs hand tracking with voice commands. Speak or click below:
+                Handsfree pairs head tracking with voice commands. Speak or click below:
               </p>
             </div>
 
             <div className="grid grid-cols-2 gap-3 text-left">
               {[
                 { en: 'Say "scroll down"', hi: 'या "नीचे scroll करो"' },
+                { en: 'Say "click this"', hi: 'या "यह click करो"' },
                 { en: 'Say "show numbers"', hi: 'या "numbers दिखाओ"' },
-                { en: 'Say "click 14"', hi: 'या "नंबर चौदह"' },
                 { en: 'Say "pause listening"', hi: 'या "सुनना बंद करो"' },
               ].map((item, idx) => (
                 <div
@@ -441,8 +520,8 @@ export const OnboardingApp: React.FC = () => {
             <div>
               <h2 className="text-3xl font-extrabold text-white font-display">You're All Set!</h2>
               <p className="text-sm text-slate-400 mt-2 leading-relaxed">
-                Hand gesture tracking is configured. Point with 2 fingers to move the pointer, open your
-                palm to click, and use voice commands at any time.
+                Head tracking and Point-and-Say voice control are configured. Move your head to position the pointer,
+                say "click this" or hold still to click, and use voice commands at any time.
               </p>
             </div>
 
