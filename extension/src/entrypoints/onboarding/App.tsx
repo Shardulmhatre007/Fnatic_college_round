@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { soundEffects } from "./audio";
 import { saveSettings } from "@/shared/storage";
 
@@ -15,25 +15,49 @@ export const OnboardingApp: React.FC = () => {
   const [permissionGranted, setPermissionGranted] = useState<boolean>(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
 
+  // Active camera preview stream
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
+
   // Bubble-pop calibration targets
   const [bubbles, setBubbles] = useState<Bubble[]>([
-    { id: 1, label: "Top Left", x: 20, y: 25, popped: false },
-    { id: 2, label: "Center", x: 50, y: 45, popped: false },
-    { id: 3, label: "Top Right", x: 80, y: 25, popped: false },
-    { id: 4, label: "Bottom Left", x: 25, y: 70, popped: false },
-    { id: 5, label: "Bottom Right", x: 75, y: 70, popped: false },
+    { id: 1, label: "Top Left", x: 18, y: 22, popped: false },
+    { id: 2, label: "Top Right", x: 82, y: 22, popped: false },
+    { id: 3, label: "Center", x: 50, y: 50, popped: false },
+    { id: 4, label: "Bottom Left", x: 20, y: 78, popped: false },
+    { id: 5, label: "Bottom Right", x: 80, y: 78, popped: false },
   ]);
 
   const [voiceTestPassed, setVoiceTestPassed] = useState<boolean>(false);
   const [gestureTestPassed, setGestureTestPassed] = useState<boolean>(false);
 
-  // 1. Request camera & mic permission
+  // Bind active stream to video element whenever step changes or stream initializes
+  useEffect(() => {
+    if (videoRef.current && activeStream) {
+      videoRef.current.srcObject = activeStream;
+      void videoRef.current.play().catch(() => {});
+    }
+  }, [activeStream, step]);
+
+  // Clean up media tracks when unmounting
+  useEffect(() => {
+    return () => {
+      if (activeStream) {
+        activeStream.getTracks().forEach((track) => track.stop());
+      }
+    };
+  }, [activeStream]);
+
+  // 1. Request camera & mic permission and keep camera feed active
   const handleRequestPermissions = async () => {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-        // Stop the temporary prompt test tracks immediately
-        stream.getTracks().forEach((track) => track.stop());
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+          audio: true,
+        });
+
+        setActiveStream(stream);
         setPermissionGranted(true);
         setPermissionError(null);
         soundEffects.playStepSuccess();
@@ -43,9 +67,8 @@ export const OnboardingApp: React.FC = () => {
       }
     } catch (err) {
       setPermissionError(
-        "Camera or Microphone permission was dismissed or not granted. You can proceed with on-screen testing."
+        "Camera or Microphone permission was dismissed or blocked. You can still test with simulated tracking."
       );
-      // Allow proceeding in dev / test environments
       setPermissionGranted(true);
     }
   };
@@ -73,15 +96,15 @@ export const OnboardingApp: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500 selection:text-white font-sans">
       {/* Top Header */}
-      <header className="px-8 py-6 border-b border-slate-800/80 bg-slate-900/40 backdrop-blur-md flex items-center justify-between">
+      <header className="px-8 py-5 border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-400 flex items-center justify-center font-bold text-lg text-white shadow-lg shadow-indigo-500/20">
             H
           </div>
           <div>
-            <h1 className="font-bold text-lg tracking-wide text-white">Handsfree</h1>
+            <h1 className="font-bold text-lg tracking-wide text-white font-display">Handsfree</h1>
             <p className="text-xs text-slate-400">Interactive Setup & Calibration</p>
           </div>
         </div>
@@ -107,12 +130,12 @@ export const OnboardingApp: React.FC = () => {
       <main className="flex-1 max-w-4xl w-full mx-auto p-8 flex flex-col justify-center">
         {/* Step 1: Camera & Microphone Permissions */}
         {step === 1 && (
-          <div className="text-center space-y-6 max-w-xl mx-auto animate-fade-in">
+          <div className="text-center space-y-6 max-w-xl mx-auto">
             <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400 shadow-inner">
               📷
             </div>
             <div>
-              <h2 className="text-3xl font-extrabold tracking-tight text-white">
+              <h2 className="text-3xl font-extrabold tracking-tight text-white font-display">
                 Camera & Microphone Access
               </h2>
               <p className="text-sm text-slate-400 mt-2 leading-relaxed">
@@ -130,14 +153,28 @@ export const OnboardingApp: React.FC = () => {
             {!permissionGranted ? (
               <button
                 onClick={handleRequestPermissions}
-                className="px-6 py-3 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/30 transition transform hover:-translate-y-0.5 active:translate-y-0"
+                className="px-6 py-3.5 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/30 transition transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
               >
-                Allow Access & Continue
+                Allow Access & Start Camera
               </button>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-5">
+                {/* Live Camera Preview Box */}
+                <div className="relative mx-auto w-72 h-52 rounded-2xl overflow-hidden border-2 border-indigo-500/40 shadow-xl bg-slate-900">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                  <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-full text-[10px] text-emerald-400 font-semibold border border-emerald-500/30">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" /> Live Camera
+                  </div>
+                </div>
+
                 <div className="inline-flex items-center gap-2 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl text-sm font-medium">
-                  <span>✓</span> Hardware Ready
+                  <span>✓</span> Hardware Verified & Camera Active
                 </div>
                 <div>
                   <button
@@ -145,7 +182,7 @@ export const OnboardingApp: React.FC = () => {
                       soundEffects.playStepSuccess();
                       setStep(2);
                     }}
-                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl transition"
+                    className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/25 transition cursor-pointer"
                   >
                     Proceed to Calibration →
                   </button>
@@ -155,35 +192,52 @@ export const OnboardingApp: React.FC = () => {
           </div>
         )}
 
-        {/* Step 2: 30-Second Bubble-Pop Calibration Game */}
+        {/* Step 2: 30-Second Bubble-Pop Calibration Game with Mini Camera View */}
         {step === 2 && (
-          <div className="relative min-h-[460px] rounded-2xl border border-slate-800 bg-slate-900/30 p-6 flex flex-col justify-between overflow-hidden">
-            <div className="text-center z-10">
-              <h2 className="text-2xl font-bold text-white">Pop the 5 Calibration Bubbles</h2>
-              <p className="text-xs text-slate-400 mt-1">
-                Move your head or cursor to pop each bubble. This maps your natural head movement to
-                your screen corners.
-              </p>
+          <div className="relative min-h-[500px] rounded-2xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between overflow-hidden backdrop-blur shadow-2xl">
+            <div className="flex items-center justify-between z-20">
+              <div>
+                <h2 className="text-2xl font-bold text-white font-display">Pop the 5 Calibration Bubbles</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  Click or hover over each bubble with your head/mouse to calibrate screen boundaries.
+                </p>
+              </div>
+
+              {/* PiP Camera Preview */}
+              {activeStream && (
+                <div className="relative w-36 h-24 rounded-xl overflow-hidden border border-indigo-500/40 shadow-lg bg-black">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover scale-x-[-1]"
+                  />
+                  <div className="absolute bottom-1 right-1.5 text-[9px] bg-black/70 px-1.5 py-0.5 rounded text-indigo-300 font-medium">
+                    Tracking
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Floating interactive bubbles */}
-            <div className="absolute inset-0">
+            {/* Interactive floating bubbles canvas */}
+            <div className="absolute inset-0 pointer-events-none">
               {bubbles.map((b) =>
                 !b.popped ? (
                   <button
                     key={b.id}
                     onClick={() => handlePopBubble(b.id)}
                     style={{ left: `${b.x}%`, top: `${b.y}%` }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 h-20 w-20 rounded-full bg-gradient-to-tr from-cyan-500/40 to-indigo-500/60 border-2 border-cyan-400/80 shadow-lg shadow-cyan-500/30 backdrop-blur-md flex flex-col items-center justify-center hover:scale-110 active:scale-95 transition cursor-pointer animate-pulse"
+                    className="pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 h-20 w-20 rounded-full bg-gradient-to-tr from-cyan-500/30 to-indigo-500/50 border-2 border-cyan-400 shadow-lg shadow-cyan-500/30 backdrop-blur-md flex flex-col items-center justify-center hover:scale-110 active:scale-95 transition cursor-pointer"
                   >
-                    <span className="text-lg">🫧</span>
-                    <span className="text-[10px] font-semibold text-cyan-200 mt-0.5">{b.label}</span>
+                    <span className="text-xl">🫧</span>
+                    <span className="text-[10px] font-bold text-cyan-200 mt-0.5">{b.label}</span>
                   </button>
                 ) : (
                   <div
                     key={b.id}
                     style={{ left: `${b.x}%`, top: `${b.y}%` }}
-                    className="absolute -translate-x-1/2 -translate-y-1/2 h-14 w-14 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-400 text-sm font-bold animate-ping"
+                    className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 h-14 w-14 rounded-full bg-emerald-500/20 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 text-lg font-bold shadow-lg shadow-emerald-500/20"
                   >
                     ✓
                   </div>
@@ -191,8 +245,8 @@ export const OnboardingApp: React.FC = () => {
               )}
             </div>
 
-            <div className="flex items-center justify-between z-10 pt-4 border-t border-slate-800/80">
-              <span className="text-xs text-slate-400 font-medium">
+            <div className="flex items-center justify-between z-20 pt-4 border-t border-slate-800/80">
+              <span className="text-xs text-slate-300 font-medium bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
                 {bubbles.filter((b) => b.popped).length} of 5 bubbles popped
               </span>
               <button
@@ -201,9 +255,9 @@ export const OnboardingApp: React.FC = () => {
                   soundEffects.playStepSuccess();
                   setStep(3);
                 }}
-                className={`px-5 py-2.5 rounded-xl font-semibold text-xs transition ${
+                className={`px-5 py-2.5 rounded-xl font-semibold text-xs transition cursor-pointer ${
                   allBubblesPopped
-                    ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20"
+                    ? "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/30"
                     : "bg-slate-800 text-slate-500 cursor-not-allowed"
                 }`}
               >
@@ -215,12 +269,12 @@ export const OnboardingApp: React.FC = () => {
 
         {/* Step 3: Dwell & Nod Selection */}
         {step === 3 && (
-          <div className="text-center space-y-6 max-w-xl mx-auto animate-fade-in">
+          <div className="text-center space-y-6 max-w-xl mx-auto">
             <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400">
               🎯
             </div>
             <div>
-              <h2 className="text-3xl font-extrabold text-white">Dwell or Nod to Click</h2>
+              <h2 className="text-3xl font-extrabold text-white font-display">Dwell or Nod to Click</h2>
               <p className="text-sm text-slate-400 mt-2">
                 Rest your cursor on any target for 800 ms to trigger a dwell click, or give a quick
                 nod to select immediately without waiting.
@@ -233,7 +287,7 @@ export const OnboardingApp: React.FC = () => {
                   soundEffects.playBubblePop();
                   setGestureTestPassed(true);
                 }}
-                className={`px-8 py-4 rounded-xl text-sm font-bold transition transform active:scale-95 ${
+                className={`px-8 py-4 rounded-xl text-sm font-bold transition transform active:scale-95 cursor-pointer ${
                   gestureTestPassed
                     ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
                     : "bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40"
@@ -249,7 +303,7 @@ export const OnboardingApp: React.FC = () => {
                 soundEffects.playStepSuccess();
                 setStep(4);
               }}
-              className={`px-6 py-3 rounded-xl font-semibold text-sm transition ${
+              className={`px-6 py-3 rounded-xl font-semibold text-sm transition cursor-pointer ${
                 gestureTestPassed
                   ? "bg-indigo-600 hover:bg-indigo-500 text-white"
                   : "bg-slate-800 text-slate-500 cursor-not-allowed"
@@ -262,12 +316,12 @@ export const OnboardingApp: React.FC = () => {
 
         {/* Step 4: Voice Commands Test */}
         {step === 4 && (
-          <div className="text-center space-y-6 max-w-xl mx-auto animate-fade-in">
+          <div className="text-center space-y-6 max-w-xl mx-auto">
             <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400">
               🎙️
             </div>
             <div>
-              <h2 className="text-3xl font-extrabold text-white">Voice Commands in Action</h2>
+              <h2 className="text-3xl font-extrabold text-white font-display">Voice Commands in Action</h2>
               <p className="text-sm text-slate-400 mt-2">
                 Handsfree recognizes commands in English and Hindi (Hinglish). Try speaking or
                 clicking below to simulate voice activation:
@@ -307,7 +361,7 @@ export const OnboardingApp: React.FC = () => {
                 soundEffects.playStepSuccess();
                 setStep(5);
               }}
-              className={`px-6 py-3 rounded-xl font-semibold text-sm transition ${
+              className={`px-6 py-3 rounded-xl font-semibold text-sm transition cursor-pointer ${
                 voiceTestPassed
                   ? "bg-indigo-600 hover:bg-indigo-500 text-white"
                   : "bg-slate-800 text-slate-500 cursor-not-allowed"
@@ -320,12 +374,12 @@ export const OnboardingApp: React.FC = () => {
 
         {/* Step 5: Ready & Celebration */}
         {step === 5 && (
-          <div className="text-center space-y-6 max-w-xl mx-auto animate-fade-in">
+          <div className="text-center space-y-6 max-w-xl mx-auto">
             <div className="h-20 w-20 mx-auto rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-4xl text-emerald-400">
               🎉
             </div>
             <div>
-              <h2 className="text-3xl font-extrabold text-white">You're All Set!</h2>
+              <h2 className="text-3xl font-extrabold text-white font-display">You're All Set!</h2>
               <p className="text-sm text-slate-400 mt-2 leading-relaxed">
                 Handsfree is fully configured and ready. You can pause listening at any time by saying
                 "pause listening", or adjust dwell sensitivity in the Options control panel.
@@ -335,7 +389,7 @@ export const OnboardingApp: React.FC = () => {
             <div className="pt-4">
               <button
                 onClick={handleFinish}
-                className="px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 transition transform hover:-translate-y-0.5 active:translate-y-0"
+                className="px-8 py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/25 transition transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
               >
                 Start Browsing Handsfree ✨
               </button>
