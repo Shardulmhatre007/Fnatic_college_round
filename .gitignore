@@ -1,0 +1,41 @@
+# Node / pnpm
+node_modules/
+.pnpm-store/
+dist/
+.output/
+.wxt/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+coverage.xml
+*.db
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Editor
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artefacts
+*.map
+coverage/
+lcov.info
+
+# Playwright
+test-results/
+playwright-report/
