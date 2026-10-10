@@ -86,7 +86,14 @@ export class VoiceManager {
   }
 
   private getRecognitionLang(locale: Locale): string {
-    return locale === "hi" ? "hi-IN" : "en-IN";
+    if (locale === "hi") return "hi-IN";
+    if (typeof navigator !== "undefined" && navigator.language) {
+      // If user's browser is en-US or en-GB, respect it, else default to en-IN for Indian English & Hinglish
+      if (navigator.language.startsWith("en-")) {
+        return navigator.language;
+      }
+    }
+    return "en-IN";
   }
 
   public startListening(locale?: Locale): void {
@@ -120,7 +127,11 @@ export class VoiceManager {
     try {
       if (this.recognition) {
         try {
-          this.recognition.abort();
+          const oldRec = this.recognition;
+          oldRec.onresult = null;
+          oldRec.onerror = null;
+          oldRec.onend = null;
+          oldRec.abort();
         } catch {
           // Safe ignore
         }
@@ -162,28 +173,19 @@ export class VoiceManager {
       };
 
       rec.onerror = (event: SpeechRecognitionErrorEventLike) => {
-        // "no-speech" or "audio-capture" in noisy background: recover gracefully
-        if (event.error === "no-speech") {
+        // "no-speech" and "aborted" are routine browser events, not fatal failures.
+        if (event.error === "no-speech" || event.error === "aborted") {
           return;
         }
 
-        console.warn("[VoiceManager] SpeechRecognition error:", event.error, event.message);
+        console.warn("[VoiceManager] SpeechRecognition error:", event.error);
         this.state.error = event.error;
         this.emitState();
-
-        // Attempt automatic recovery after error
-        if (this.shouldAutoRestart && !this.state.isPaused) {
-          if (this.restartTimeout) clearTimeout(this.restartTimeout);
-          this.restartTimeout = setTimeout(() => {
-            this.restartTimeout = null;
-            if (this.shouldAutoRestart && !this.state.isPaused) {
-              this.startListening();
-            }
-          }, 600);
-        }
       };
 
       rec.onend = () => {
+        // Chrome ends continuous speech recognition periodically or when silent.
+        // We restart it cleanly via onend ONLY (preventing conflicting restart loops).
         if (this.shouldAutoRestart && !this.state.isPaused) {
           if (this.restartTimeout) {
             clearTimeout(this.restartTimeout);
@@ -193,7 +195,7 @@ export class VoiceManager {
             if (this.shouldAutoRestart && !this.state.isPaused) {
               this.startListening();
             }
-          }, 200);
+          }, 150);
         } else {
           this.state.listening = false;
           this.emitState();
