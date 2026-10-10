@@ -58,6 +58,7 @@ export class VoiceManager {
   private transcriptHandlers: Set<TranscriptHandler> = new Set();
   private stateHandlers: Set<StateChangeHandler> = new Set();
   private shouldAutoRestart = true;
+  private restartTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(initialLocale: Locale = "en") {
     this.state.locale = initialLocale;
@@ -95,6 +96,11 @@ export class VoiceManager {
     this.shouldAutoRestart = true;
     this.state.isPaused = false;
 
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
+
     if (typeof window === "undefined") {
       this.state.listening = true;
       this.emitState();
@@ -113,7 +119,12 @@ export class VoiceManager {
 
     try {
       if (this.recognition) {
-        this.recognition.abort();
+        try {
+          this.recognition.abort();
+        } catch {
+          // Safe ignore
+        }
+        this.recognition = null;
       }
 
       const rec = new SpeechRec();
@@ -126,7 +137,11 @@ export class VoiceManager {
           const res = event.results[i];
           if (!res || !res[0]) continue;
           const transcript = res[0].transcript.trim();
-          const confidence = res[0].confidence || 0.9;
+          if (!transcript) continue;
+
+          const confidence = typeof res[0].confidence === "number" && res[0].confidence > 0
+            ? res[0].confidence
+            : 0.9;
           const isFinal = res.isFinal;
 
           const transcriptEvent: TranscriptEvent = {
@@ -137,25 +152,48 @@ export class VoiceManager {
           };
 
           for (const h of this.transcriptHandlers) {
-            h(transcriptEvent);
+            try {
+              h(transcriptEvent);
+            } catch (err) {
+              console.error("[VoiceManager] Handler error:", err);
+            }
           }
         }
       };
 
       rec.onerror = (event: SpeechRecognitionErrorEventLike) => {
-        if (event.error !== "no-speech") {
-          this.state.error = event.error;
-          this.emitState();
+        // "no-speech" or "audio-capture" in noisy background: recover gracefully
+        if (event.error === "no-speech") {
+          return;
+        }
+
+        console.warn("[VoiceManager] SpeechRecognition error:", event.error, event.message);
+        this.state.error = event.error;
+        this.emitState();
+
+        // Attempt automatic recovery after error
+        if (this.shouldAutoRestart && !this.state.isPaused) {
+          if (this.restartTimeout) clearTimeout(this.restartTimeout);
+          this.restartTimeout = setTimeout(() => {
+            this.restartTimeout = null;
+            if (this.shouldAutoRestart && !this.state.isPaused) {
+              this.startListening();
+            }
+          }, 600);
         }
       };
 
       rec.onend = () => {
         if (this.shouldAutoRestart && !this.state.isPaused) {
-          try {
-            rec.start();
-          } catch {
-            // Ignore if already started
+          if (this.restartTimeout) {
+            clearTimeout(this.restartTimeout);
           }
+          this.restartTimeout = setTimeout(() => {
+            this.restartTimeout = null;
+            if (this.shouldAutoRestart && !this.state.isPaused) {
+              this.startListening();
+            }
+          }, 200);
         } else {
           this.state.listening = false;
           this.emitState();
@@ -177,6 +215,10 @@ export class VoiceManager {
     this.shouldAutoRestart = false;
     this.state.listening = false;
     this.state.isPaused = false;
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
     if (this.recognition) {
       try {
         this.recognition.stop();
@@ -190,6 +232,17 @@ export class VoiceManager {
 
   public pauseListening(): void {
     this.state.isPaused = true;
+    if (this.restartTimeout) {
+      clearTimeout(this.restartTimeout);
+      this.restartTimeout = null;
+    }
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch {
+        // Safe ignore
+      }
+    }
     this.emitState();
   }
 
@@ -206,7 +259,6 @@ export class VoiceManager {
     if (this.state.locale === locale) return;
     this.state.locale = locale;
     if (this.state.listening) {
-      // Restart with the newly selected locale
       this.startListening(locale);
     } else {
       this.emitState();

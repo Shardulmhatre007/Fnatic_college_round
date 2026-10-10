@@ -70,6 +70,11 @@ export function extractNumberFromTranscript(text: string): number | undefined {
     thirteen: 13,
     fourteen: 14,
     fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+    twenty: 20,
     // Hindi / Hinglish
     ek: 1,
     do: 2,
@@ -81,6 +86,16 @@ export function extractNumberFromTranscript(text: string): number | undefined {
     aath: 8,
     nau: 9,
     dus: 10,
+    gyarah: 11,
+    baarah: 12,
+    terah: 13,
+    chaudah: 14,
+    pandrah: 15,
+    solah: 16,
+    satrah: 17,
+    atharah: 18,
+    unnees: 19,
+    bees: 20,
     "एक": 1,
     "दो": 2,
     "तीन": 3,
@@ -91,6 +106,16 @@ export function extractNumberFromTranscript(text: string): number | undefined {
     "आठ": 8,
     "नौ": 9,
     "दस": 10,
+    "ग्यारह": 11,
+    "बारह": 12,
+    "तेरह": 13,
+    "चौदह": 14,
+    "पंद्रह": 15,
+    "सोलह": 16,
+    "सत्रह": 17,
+    "अठारह": 18,
+    "उन्नीस": 19,
+    "बीस": 20,
   };
 
   const words = text.split(" ");
@@ -111,8 +136,8 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     id: "cmd_scroll_down",
     phrase: "scroll down",
     aliases: {
-      en: ["scroll down", "go down", "page down"],
-      hi: ["नीचे scroll करो", "नीचे जाओ", "neeche jao", "neeche scroll"],
+      en: ["scroll down", "go down", "page down", "down", "scroll down please", "scroll bottom"],
+      hi: ["नीचे scroll करो", "नीचे जाओ", "neeche jao", "neeche scroll", "neeche", "scroll down"],
     },
     action: { type: "scroll", direction: "down", amount: 400 },
     enabled: true,
@@ -121,8 +146,8 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     id: "cmd_scroll_up",
     phrase: "scroll up",
     aliases: {
-      en: ["scroll up", "go up", "page up"],
-      hi: ["ऊपर scroll करो", "ऊपर जाओ", "upar jao", "upar scroll"],
+      en: ["scroll up", "go up", "page up", "up", "scroll up please", "scroll top"],
+      hi: ["ऊपर scroll करो", "ऊपर जाओ", "upar jao", "upar scroll", "upar", "scroll up"],
     },
     action: { type: "scroll", direction: "up", amount: 400 },
     enabled: true,
@@ -131,8 +156,8 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     id: "cmd_click",
     phrase: "click",
     aliases: {
-      en: ["click", "press", "select"],
-      hi: ["click", "दबाओ", "chuno"],
+      en: ["click", "press", "select", "tap", "hit"],
+      hi: ["click", "दबाओ", "chuno", "click karo", "daba do"],
     },
     action: { type: "click" },
     enabled: true,
@@ -290,13 +315,19 @@ export function matchCommand(
   const normInput = normaliseTranscript(transcript);
   if (!normInput) return null;
 
-  // Check special dynamic pattern: "click <number>" or "number <n>" or "<n> दबाओ"
-  const clickNumberPattern =
-    /(?:click|press|number|choose|select|dabaao|chuno)\s+(\d+|[a-zA-Z]+)|(?:number\s+)?(\d+)/i;
-  const matchNum = normInput.match(clickNumberPattern);
-  if (matchNum) {
-    const extractedNum = extractNumberFromTranscript(normInput);
-    if (extractedNum !== undefined && extractedNum > 0) {
+  // Check special dynamic pattern: "click <number>", "number <n>", "<n> number", or direct number like "14", "12", "fourteen", "चौदह"
+  const extractedNum = extractNumberFromTranscript(normInput);
+  if (extractedNum !== undefined && extractedNum > 0) {
+    const isExplicitAction =
+      /(?:click|press|number|choose|select|dabaao|chuno|daba|karo|target)\b/i.test(normInput) ||
+      normInput.trim() === String(extractedNum) ||
+      normInput.trim() === `${extractedNum} number` ||
+      normInput.trim() === `number ${extractedNum}`;
+
+    // In noisy environments speech might capture "hey click 14 please" or "14 please"
+    const isUtteranceWithNumber = normInput.split(/\s+/).length <= 5;
+
+    if (isExplicitAction || isUtteranceWithNumber) {
       return {
         command: {
           id: `cmd_click_number_${extractedNum}`,

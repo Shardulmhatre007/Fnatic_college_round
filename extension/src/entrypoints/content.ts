@@ -11,6 +11,7 @@
  */
 import { defineContentScript } from "wxt/sandbox";
 import { isExtensionMessage } from "@/shared/messaging";
+import { loadSettings, onSettingsChanged } from "@/shared/storage";
 import { updateCursor, type ViewportSize } from "@/modules/cursor/index";
 import { renderCursor, showDwellRing, hideDwellRing, showNumbers, hideNumbers } from "@/modules/overlay/index";
 import { feedFrame, type SelectionEvent } from "@/modules/selection/index";
@@ -59,7 +60,24 @@ function executeAction(actionType: string, data?: Record<string, unknown>): void
     case "scroll": {
       const dir = data?.direction === "up" ? -1 : 1;
       const amount = typeof data?.amount === "number" ? data.amount : 400;
-      window.scrollBy({ top: dir * amount, behavior: "smooth" });
+      const delta = dir * amount;
+
+      // 1. Try window scrolling
+      window.scrollBy({ top: delta, behavior: "smooth" });
+
+      // 2. Also try scrolling documentElement and body for fixed / strict layouts
+      if (document.documentElement) {
+        document.documentElement.scrollBy({ top: delta, behavior: "smooth" });
+      }
+      if (document.body) {
+        document.body.scrollBy({ top: delta, behavior: "smooth" });
+      }
+
+      // 3. If an inner container is active or hovered, scroll it too
+      const activeEl = document.activeElement;
+      if (activeEl && activeEl !== document.body && typeof activeEl.scrollBy === "function") {
+        activeEl.scrollBy({ top: delta, behavior: "smooth" });
+      }
       break;
     }
     case "click": {
@@ -84,6 +102,10 @@ function executeAction(actionType: string, data?: Record<string, unknown>): void
       break;
     case "click_number": {
       const num = Number(data?.n);
+      if (currentNumberBadges.length === 0) {
+        // Auto-scan clickable elements on page if badges weren't open yet
+        scanClickableElements();
+      }
       const match = currentNumberBadges.find((b) => b.badge.n === num);
       if (match) {
         match.element.click();
@@ -116,6 +138,29 @@ export default defineContentScript({
   main() {
     const voiceManager = getVoiceManager();
 
+    // Auto-sync voice recognition state and language with persisted settings
+    void loadSettings().then((settings) => {
+      if (settings.locale) {
+        voiceManager.setLocale(settings.locale);
+      }
+      if (settings.voiceEnabled) {
+        voiceManager.startListening(settings.locale);
+      }
+    });
+
+    onSettingsChanged((changes) => {
+      if (changes.locale !== undefined) {
+        voiceManager.setLocale(changes.locale);
+      }
+      if (changes.voiceEnabled !== undefined) {
+        if (changes.voiceEnabled) {
+          voiceManager.startListening();
+        } else {
+          voiceManager.stopListening();
+        }
+      }
+    });
+
     voiceManager.onTranscript((event) => {
       // Send transcript event to runtime
       try {
@@ -127,18 +172,29 @@ export default defineContentScript({
         // Safe ignore
       }
 
-      // If dictating, append text to focused input
+      // If dictating or if an input/textarea is actively focused and not a matching action command
       const state = voiceManager.getState();
+      const active = document.activeElement;
+      const isInputActive = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+
+      // If user is explicitly dictating or text input is focused:
       if (state.isDictating && event.isFinal) {
-        const active = document.activeElement;
-        if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+        if (isInputActive) {
           active.value += (active.value.length > 0 ? " " : "") + event.text;
+          active.dispatchEvent(new Event("input", { bubbles: true }));
         }
         return;
       }
 
       // Check command matching
       const match = matchCommand(event.text, event.locale);
+
+      // If no command matched and a text box is actively focused, type into it directly!
+      if (!match && isInputActive && event.isFinal) {
+        active.value += (active.value.length > 0 ? " " : "") + event.text;
+        active.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
       if (match && match.confidence >= 0.75) {
         const action = match.command.action;
         if (action.type === "dictate_start") {
