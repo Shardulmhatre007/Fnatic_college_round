@@ -37,7 +37,6 @@ export class FastCameraTracker {
   public start(callback: TrackerCallback): void {
     this.callback = callback;
     this.isTracking = true;
-    this.prevFrame = null;
     this.currentX = 0.5;
     this.currentY = 0.5;
     this.targetX = 0.5;

@@ -5,7 +5,15 @@
  * types here first before implementing senders or receivers (contract-first).
  * See ADR 0003 for the transport layer decisions.
  */
-import type { LandmarkResult, TranscriptEvent, HandsfreeSettings, Id } from "./types";
+import type {
+  LandmarkResult,
+  TranscriptEvent,
+  HandsfreeSettings,
+  Id,
+  FusionState,
+  FatigueState,
+  EffortMetrics,
+} from "./types";
 
 // ---------------------------------------------------------------------------
 // Message type catalogue
@@ -37,7 +45,10 @@ export type MessageType =
   // UI sync (service worker ↔ options/sidepanel)
   | "UI_SETTINGS_CHANGED"
   | "UI_STATUS_UPDATE"
-  | "UI_CALIBRATION_DONE";
+  | "UI_CALIBRATION_DONE"
+  // M6: Fusion and Fatigue (content script ↔ UI / service worker)
+  | "FUSION_STATE_CHANGED"
+  | "FATIGUE_STATE_CHANGED";
 
 // ---------------------------------------------------------------------------
 // Payload shapes
@@ -129,6 +140,18 @@ interface UiCalibrationDonePayload {
   success: boolean;
 }
 
+interface FusionStateChangedPayload {
+  state: FusionState;
+  targetName?: string;
+  commandPhrase?: string;
+}
+
+interface FatigueStateChangedPayload {
+  state: FatigueState;
+  suggestion?: string;
+  metrics?: EffortMetrics;
+}
+
 // ---------------------------------------------------------------------------
 // Message union
 // ---------------------------------------------------------------------------
@@ -153,7 +176,9 @@ export type ExtensionMessage =
   | { type: "RITUAL_FAILED"; payload: RitualFailedPayload }
   | { type: "UI_SETTINGS_CHANGED"; payload: UiSettingsChangedPayload }
   | { type: "UI_STATUS_UPDATE"; payload: UiStatusUpdatePayload }
-  | { type: "UI_CALIBRATION_DONE"; payload: UiCalibrationDonePayload };
+  | { type: "UI_CALIBRATION_DONE"; payload: UiCalibrationDonePayload }
+  | { type: "FUSION_STATE_CHANGED"; payload: FusionStateChangedPayload }
+  | { type: "FATIGUE_STATE_CHANGED"; payload: FatigueStateChangedPayload };
 
 /** Helper to narrow an unknown runtime value to ExtensionMessage. */
 export function isExtensionMessage(value: unknown): value is ExtensionMessage {

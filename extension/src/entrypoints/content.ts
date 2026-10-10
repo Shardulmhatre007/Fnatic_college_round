@@ -2,27 +2,45 @@
  * Content script entrypoint.
  *
  * Responsibilities:
- * - Render the cursor overlay and number badges on the page.
+ * - Render cursor overlay, dwell ring, and target highlights.
+ * - Point-and-Say Fusion Engine integration combining head tracking and voice.
  * - Host Web Speech API (`SpeechRecognition`) for the active tab.
- * - Forward transcript events to the service worker.
- * - Execute commands from the service worker (click, scroll, type, etc.).
- * - Detect SPA navigations (History API) and notify the service worker.
- * - Resolve ElementRef targets during ritual step execution.
+ * - Forward transcript and tracking events to the service worker.
+ * - Enforce Intent Filter safety gate and Confirmation Workflow.
+ * - Monitor interaction difficulty through Fatigue & Effort Management.
+ * - Execute validated browser actions (click, scroll, navigate, numbers, typing).
  */
 import { defineContentScript } from "wxt/sandbox";
 import { isExtensionMessage } from "@/shared/messaging";
 import { updateCursor, type ViewportSize } from "@/modules/cursor/index";
-import { renderCursor, showDwellRing, hideDwellRing, showNumbers, hideNumbers } from "@/modules/overlay/index";
+import {
+  renderCursor,
+  showDwellRing,
+  hideDwellRing,
+  showNumbers,
+  hideNumbers,
+  highlightTarget,
+  showBanner,
+  showConfirmPrompt,
+  hideConfirmPrompt,
+  showBreakPrompt,
+  hideBreakPrompt,
+} from "@/modules/overlay/index";
 import { feedFrame, type SelectionEvent } from "@/modules/selection/index";
 import { getVoiceManager } from "@/modules/voice/index";
-import { matchCommand } from "@/modules/commands/index";
+import {
+  FusionEngine,
+  resolveTargetAtPoint,
+  type ResolvedTarget,
+} from "@/modules/fusion/index";
 import type { LandmarkResult, NumberBadge } from "@/shared/types";
 
 let currentNumberBadges: { badge: NumberBadge; element: HTMLElement }[] = [];
 
 function scanClickableElements(): NumberBadge[] {
   currentNumberBadges = [];
-  const selector = "a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1']), [role='button']";
+  const selector =
+    "a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1']), [role='button'], [role='link']";
   const elements = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
 
   let index = 1;
@@ -54,7 +72,11 @@ function scanClickableElements(): NumberBadge[] {
   return badges;
 }
 
-function executeAction(actionType: string, data?: Record<string, unknown>): void {
+function executeAction(
+  actionType: string,
+  data?: Record<string, unknown>,
+  target?: ResolvedTarget | null
+): void {
   switch (actionType) {
     case "scroll": {
       const dir = data?.direction === "up" ? -1 : 1;
@@ -62,9 +84,29 @@ function executeAction(actionType: string, data?: Record<string, unknown>): void
       window.scrollBy({ top: dir * amount, behavior: "smooth" });
       break;
     }
-    case "click": {
-      const centerTarget = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
-      if (centerTarget instanceof HTMLElement) centerTarget.click();
+    case "click":
+    case "click_this": {
+      if (target && target.element && target.element.isConnected) {
+        target.element.click();
+      } else {
+        const centerTarget = document.elementFromPoint(
+          window.innerWidth / 2,
+          window.innerHeight / 2
+        );
+        if (centerTarget instanceof HTMLElement) {
+          centerTarget.click();
+        }
+      }
+      break;
+    }
+    case "open_this": {
+      if (target && target.element) {
+        if (target.element instanceof HTMLAnchorElement && target.element.href) {
+          window.location.href = target.element.href;
+        } else {
+          target.element.click();
+        }
+      }
       break;
     }
     case "go_back":
@@ -115,7 +157,87 @@ export default defineContentScript({
   matches: ["<all_urls>"],
   main() {
     const voiceManager = getVoiceManager();
+    const fusionEngine = new FusionEngine();
 
+    // 1. Setup Fusion Engine Event Listeners
+    fusionEngine.onExecute((action, target) => {
+      if (action.type === "dictate_start") {
+        voiceManager.setDictating(true);
+      } else if (action.type === "dictate_stop") {
+        voiceManager.setDictating(false);
+      } else if (action.type === "pause_listening") {
+        voiceManager.pauseListening();
+        fusionEngine.setSystemState({ isPaused: true });
+      } else if (action.type === "resume_listening") {
+        voiceManager.resumeListening();
+        fusionEngine.setSystemState({ isPaused: false });
+      } else {
+        executeAction(action.type, action as unknown as Record<string, unknown>, target);
+      }
+    });
+
+    fusionEngine.onFeedback((feedback) => {
+      showBanner(feedback.message, feedback.type);
+    });
+
+    fusionEngine.onConfirmation((pending) => {
+      if (pending) {
+        showConfirmPrompt(pending, (confirmed) => {
+          fusionEngine.resolveConfirmation(confirmed);
+        });
+      } else {
+        hideConfirmPrompt();
+      }
+    });
+
+    fusionEngine.onFatigue((state, suggestion) => {
+      if (state === "BREAK_SUGGESTED") {
+        showBreakPrompt(
+          suggestion ?? "Continuous interaction difficulty detected. Consider a short break.",
+          () => {
+            fusionEngine.cancel("Recalibration chosen");
+            showBanner("Recalibration recommended. Use settings to calibrate.", "info");
+          },
+          () => {
+            fusionEngine.getFatigueManager().dismissBreakSuggestion();
+          }
+        );
+      } else {
+        hideBreakPrompt();
+      }
+
+      // Relay fatigue state to service worker
+      try {
+        void chrome.runtime.sendMessage({
+          type: "FATIGUE_STATE_CHANGED",
+          payload: {
+            state,
+            suggestion,
+            metrics: fusionEngine.getFatigueManager().getMetrics(),
+          },
+        });
+      } catch {
+        // Safe ignore
+      }
+    });
+
+    // 2. Keyboard Accessibility for Confirmation & Break dialogs
+    window.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter" && fusionEngine.getPendingConfirmation()) {
+        e.preventDefault();
+        fusionEngine.resolveConfirmation(true);
+      } else if (e.key === "Escape") {
+        if (fusionEngine.getPendingConfirmation()) {
+          e.preventDefault();
+          fusionEngine.resolveConfirmation(false);
+        } else {
+          hideBreakPrompt();
+          fusionEngine.getFatigueManager().dismissBreakSuggestion();
+        }
+      }
+    });
+
+    // 3. Voice Transcript Processing
     voiceManager.onTranscript((event) => {
       // Send transcript event to runtime
       try {
@@ -137,24 +259,11 @@ export default defineContentScript({
         return;
       }
 
-      // Check command matching
-      const match = matchCommand(event.text, event.locale);
-      if (match && match.confidence >= 0.75) {
-        const action = match.command.action;
-        if (action.type === "dictate_start") {
-          voiceManager.setDictating(true);
-        } else if (action.type === "dictate_stop") {
-          voiceManager.setDictating(false);
-        } else if (action.type === "pause_listening") {
-          voiceManager.pauseListening();
-        } else if (action.type === "resume_listening") {
-          voiceManager.resumeListening();
-        } else {
-          executeAction(action.type, action as unknown as Record<string, unknown>);
-        }
-      }
+      // Pass final transcripts to Point-and-Say Fusion Engine
+      fusionEngine.processTranscript(event, performance.now());
     });
 
+    // 4. Runtime Message Handling
     chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       if (!isExtensionMessage(message)) return;
 
@@ -168,6 +277,17 @@ export default defineContentScript({
         const pos = updateCursor(landmarks, viewport);
         renderCursor(pos);
 
+        // Resolve actionable DOM target under cursor
+        const target = resolveTargetAtPoint(pos);
+
+        // Update target outline highlight
+        const isLocked = fusionEngine.getState() === "AWAITING_CONFIRMATION";
+        highlightTarget(isLocked ? fusionEngine.getLockedTarget() : target, isLocked);
+
+        // Update fusion engine with pointer state
+        fusionEngine.updatePointer(pos, landmarks.timestamp, target);
+
+        // Dwell / Nod Selection fallback from M1
         const selection: SelectionEvent | null = feedFrame(
           pos,
           landmarks.gestures,
@@ -175,9 +295,13 @@ export default defineContentScript({
         );
 
         if (selection) {
-          const target = document.elementFromPoint(selection.position.x, selection.position.y);
-          if (target && target instanceof HTMLElement) {
-            target.click();
+          if (target && target.isActionable) {
+            // Check risk before dwell execution
+            if (target.risk === "high") {
+              showBanner(`⚠️ "${target.text || target.tagName}" requires voice confirmation. Say "Confirm" to click.`, "warning");
+            } else {
+              target.element.click();
+            }
           }
           hideDwellRing();
         } else {
@@ -188,9 +312,16 @@ export default defineContentScript({
         return true;
       }
 
+      if (message.type === "TRACKING_STATE_CHANGED") {
+        const active = (message.payload as { active: boolean }).active;
+        fusionEngine.setSystemState({ trackingActive: active });
+        sendResponse({ ok: true });
+        return true;
+      }
+
       if (message.type === "COMMAND_EXECUTE") {
         const payload = message.payload as { actionType: string; data?: Record<string, unknown> };
-        executeAction(payload.actionType, payload.data);
+        executeAction(payload.actionType, payload.data, fusionEngine.getLockedTarget());
         sendResponse({ ok: true });
         return true;
       }

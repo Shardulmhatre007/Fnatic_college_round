@@ -8,12 +8,25 @@
 | M3 — Control panel | ✅ Done | React options control panel, side panel, live settings sync, and profiles tested. |
 | M4 — Onboarding tutorial | ✅ Done | 5-step game-style calibration tutorial, Web Audio synthesizers, and setup tested. |
 | M5 — Rituals | ⏳ Not started | Blocked on: M3 done. Owner: Frontend + Integration. |
-| M6 — Point-and-say fusion, intent filter, fatigue | ⏳ Not started | Blocked on: M2 done. Owner: Integration Agent. |
+| M6 — Point-and-say fusion, intent filter, fatigue | ✅ Done | Multimodal fusion FSM, target locking, intent filter safety gate, confirmation workflow, fatigue indicators, and 56 tests passing. |
 | M7 — Benchmark module | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
 | M8 — Backend: auth, sync, rituals, LLM, STT | ⏳ Not started | Blocked on: M5 done. Owner: Backend Agent. |
 | M9 — Polish, docs, packaging, demo | ⏳ Not started | Blocked on: M8 done. Owner: All. |
 
-## M4 Details
+## M6 Details
+
+**Done when:** Point-and-say multimodal fusion combines head pointer coordinates with speech recognition; target locking policy prevents pointer drift from redirecting actions; Intent Filter validates system readiness, target stability (>= 150ms), and temporal fusion freshness (<= 2500ms); high-consequence actions require explicit voice/keyboard confirmation; Fatigue and Interaction-Effort Management tracks observable difficulty metrics and provides non-intrusive break and recalibration suggestions; 56 unit tests pass.
+
+**Verification steps:**
+1. `cd extension && npm run type-check` — zero type errors.
+2. `cd extension && npm test` — 56 unit tests pass across 11 test suites.
+3. `cd extension && npm run build` — extension bundles cleanly (341 kB).
+
+**Handoff:**
+- Agent: Integration Agent
+- Changed: `modules/fusion/` (target-resolver.ts, intent-filter.ts, fatigue-manager.ts, fusion-engine.ts, index.ts, README.md), `entrypoints/content.ts`, `modules/overlay/index.ts`, `modules/commands/index.ts`, `shared/types.ts`, `shared/schemas.ts`, `shared/messaging.ts`, `locales/en.json`, `locales/hi.json`, `tests/unit/` (target-resolver.test.ts, intent-filter.test.ts, fatigue-manager.test.ts, fusion-engine.test.ts).
+- Open items: Rituals macro recording and replay in M5; Benchmark comparison metrics in M7.
+- Contract changes: Added M6 actions (`click_this`, `open_this`, `confirm_action`, `cancel_action`, `dismiss_break`, `recalibrate`) to `CommandAction` and `commandActionSchema`; added `ActionRiskLevel`, `IntentDecision`, `FusionState`, `FatigueState`, `ResolvedTarget`, `PendingConfirmation`, `EffortMetrics` to `types.ts`; added `FUSION_STATE_CHANGED` and `FATIGUE_STATE_CHANGED` to `messaging.ts`.
 
 **Done when:** Fresh install opens onboarding tab; permissions requested; 5-target bubble calibration game completes; Web Audio synthesized sound effects play; dwell, nod, and voice commands verified interactively.
 

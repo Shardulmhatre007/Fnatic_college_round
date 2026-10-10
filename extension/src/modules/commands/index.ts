@@ -277,6 +277,66 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     action: { type: "delete_last_word" },
     enabled: true,
   },
+  {
+    id: "cmd_click_this",
+    phrase: "click this",
+    aliases: {
+      en: ["click this", "select this", "press this", "choose this"],
+      hi: ["यह click करो", "yeh click karo", "ise chuno", "ise dabao", "इस पर click करो"],
+    },
+    action: { type: "click_this" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_this",
+    phrase: "open this",
+    aliases: {
+      en: ["open this", "open link", "open"],
+      hi: ["यह खोलो", "yeh kholo", "ise kholo", "open karo"],
+    },
+    action: { type: "open_this" },
+    enabled: true,
+  },
+  {
+    id: "cmd_confirm",
+    phrase: "confirm",
+    aliases: {
+      en: ["confirm", "yes", "proceed", "okay", "approve"],
+      hi: ["पक्का करें", "pakka karo", "haan", "theek hai"],
+    },
+    action: { type: "confirm_action" },
+    enabled: true,
+  },
+  {
+    id: "cmd_cancel",
+    phrase: "cancel",
+    aliases: {
+      en: ["cancel", "never mind", "abort", "stop"],
+      hi: ["रद्द करो", "radd karo", "ruk jao", "cancel karo"],
+    },
+    action: { type: "cancel_action" },
+    enabled: true,
+  },
+  {
+    id: "cmd_dismiss_break",
+    phrase: "dismiss",
+    aliases: {
+      en: ["dismiss", "dismiss break", "ignore"],
+      hi: ["खारिज करो", "hatao", "dismiss karo"],
+    },
+    action: { type: "dismiss_break" },
+    enabled: true,
+  },
+  {
+    id: "cmd_recalibrate",
+    phrase: "recalibrate",
+    aliases: {
+      en: ["recalibrate", "re-calibrate", "fix pointer"],
+      hi: ["recalibrate करो", "theek karo", "reset karo"],
+    },
+    action: { type: "recalibrate" },
+    enabled: true,
+  },
 ];
 
 /**

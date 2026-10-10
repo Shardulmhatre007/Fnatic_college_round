@@ -106,6 +106,12 @@ export const commandActionSchema: z.ZodType<CommandAction> = z.discriminatedUnio
   z.object({ type: z.literal("dictate_stop") }),
   z.object({ type: z.literal("new_line") }),
   z.object({ type: z.literal("delete_last_word") }),
+  z.object({ type: z.literal("click_this") }),
+  z.object({ type: z.literal("open_this") }),
+  z.object({ type: z.literal("confirm_action") }),
+  z.object({ type: z.literal("cancel_action") }),
+  z.object({ type: z.literal("dismiss_break") }),
+  z.object({ type: z.literal("recalibrate") }),
   z.object({ type: z.literal("run_ritual"), ritualId: idSchema }),
 ]) as z.ZodType<CommandAction>;
 

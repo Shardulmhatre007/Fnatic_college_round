@@ -131,6 +131,12 @@ export type CommandAction =
   | { type: "dictate_stop" }
   | { type: "new_line" }
   | { type: "delete_last_word" }
+  | { type: "click_this" }
+  | { type: "open_this" }
+  | { type: "confirm_action" }
+  | { type: "cancel_action" }
+  | { type: "dismiss_break" }
+  | { type: "recalibrate" }
   | { type: "run_ritual"; ritualId: Id };
 
 // ---------------------------------------------------------------------------
@@ -269,3 +275,68 @@ export interface CalibrationResult {
   /** Whether recalibration was triggered automatically. */
   silent: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// M6: Point-and-Say Fusion, Intent Filter & Fatigue
+// ---------------------------------------------------------------------------
+
+/** Consequence risk tier of an action. */
+export type ActionRiskLevel = "low" | "moderate" | "high";
+
+/** Intent validation gate decision. */
+export type IntentDecision = "ALLOW" | "CONFIRM" | "REJECT" | "EXPIRED";
+
+/** Point-and-say fusion engine finite state machine states. */
+export type FusionState =
+  | "IDLE"
+  | "TARGET_ACQUIRED"
+  | "COMMAND_RECOGNIZED"
+  | "VALIDATING_INTENT"
+  | "AWAITING_CONFIRMATION"
+  | "EXECUTING"
+  | "CANCELLED"
+  | "BLOCKED"
+  | "RECOVERING";
+
+/** Adaptive interaction-effort and fatigue management states. */
+export type FatigueState =
+  | "NORMAL"
+  | "EFFORT_ELEVATED"
+  | "BREAK_SUGGESTED"
+  | "PAUSED";
+
+/** Actionable target element resolved under the cursor. */
+export interface ResolvedTarget {
+  element: HTMLElement;
+  tagName: string;
+  text: string;
+  ariaLabel?: string;
+  role?: string;
+  href?: string;
+  type?: string;
+  isActionable: boolean;
+  risk: ActionRiskLevel;
+  rect: { top: number; left: number; width: number; height: number };
+}
+
+/** Action requiring explicit user confirmation before execution. */
+export interface PendingConfirmation {
+  id: string;
+  actionType: string;
+  targetDescription: string;
+  risk: ActionRiskLevel;
+  createdAt: number;
+  expiresAt: number;
+  data?: Record<string, unknown>;
+}
+
+/** Observable interaction-strain metrics tracked in a rolling window. */
+export interface EffortMetrics {
+  sessionDurationMs: number;
+  failedAcquisitions: number;
+  rejectedCommands: number;
+  repeatAttempts: number;
+  recalibrationRequests: number;
+  strainScore: number;
+}
+

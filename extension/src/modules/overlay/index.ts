@@ -1,4 +1,4 @@
-import type { CursorPosition, NumberBadge } from "@/shared/types";
+import type { CursorPosition, NumberBadge, PendingConfirmation, ResolvedTarget } from "@/shared/types";
 
 export interface UiStatusUpdate {
   trackingActive: boolean;
@@ -11,10 +11,21 @@ export interface UiStatusUpdate {
 export class OverlayManager {
   private shadow: ShadowRoot | null = null;
   private cursorElement: HTMLDivElement | null = null;
+  private targetHighlightElement: HTMLDivElement | null = null;
+  private bannerElement: HTMLDivElement | null = null;
+  private confirmDialog: HTMLDivElement | null = null;
+  private confirmMsg: HTMLDivElement | null = null;
+  private confirmBtnYes: HTMLButtonElement | null = null;
+  private confirmBtnNo: HTMLButtonElement | null = null;
+  private breakDialog: HTMLDivElement | null = null;
+  private breakMsg: HTMLDivElement | null = null;
+  private breakBtnRecalibrate: HTMLButtonElement | null = null;
+  private breakBtnDismiss: HTMLButtonElement | null = null;
   private dwellRingSvg: SVGSVGElement | null = null;
   private dwellRingCircle: SVGCircleElement | null = null;
   private badgesContainer: HTMLDivElement | null = null;
   private hudElement: HTMLDivElement | null = null;
+  private bannerTimerId: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.initDom();
@@ -127,12 +138,124 @@ export class OverlayManager {
           background: #00e676;
           box-shadow: 0 0 6px #00e676;
         }
+        .handsfree-target-highlight {
+          position: absolute;
+          border-radius: 6px;
+          border: 2px solid rgba(0, 210, 255, 0.85);
+          box-shadow: 0 0 10px rgba(0, 210, 255, 0.45);
+          pointer-events: none;
+          display: none;
+          z-index: 99;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        .handsfree-target-highlight.locked {
+          border-color: #ffb142;
+          box-shadow: 0 0 14px rgba(255, 177, 66, 0.7);
+        }
+        .handsfree-target-highlight.active {
+          display: block;
+        }
+        .handsfree-banner {
+          position: fixed;
+          top: 20px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(18, 18, 24, 0.92);
+          color: #f1f2f6;
+          font-family: system-ui, -apple-system, sans-serif;
+          font-size: 14px;
+          padding: 8px 18px;
+          border-radius: 20px;
+          backdrop-filter: blur(8px);
+          border: 1px solid rgba(255, 255, 255, 0.15);
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+          pointer-events: none;
+          z-index: 1000;
+          display: none;
+          transition: opacity 0.2s ease;
+        }
+        .handsfree-banner.active {
+          display: block;
+        }
+        .handsfree-banner.success { border-color: #00e676; }
+        .handsfree-banner.warning { border-color: #ffb142; color: #ffeaa7; }
+        .handsfree-banner.error { border-color: #ff5252; color: #ff7675; }
+
+        .handsfree-dialog-box {
+          position: fixed;
+          top: 70px;
+          left: 50%;
+          transform: translateX(-50%);
+          background: rgba(24, 25, 32, 0.95);
+          color: #ffffff;
+          font-family: system-ui, -apple-system, sans-serif;
+          font-size: 14px;
+          padding: 16px 20px;
+          border-radius: 12px;
+          backdrop-filter: blur(10px);
+          border: 1px solid #ffb142;
+          box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
+          pointer-events: auto;
+          z-index: 1001;
+          display: none;
+          flex-direction: column;
+          gap: 12px;
+          min-width: 320px;
+          max-width: 450px;
+        }
+        .handsfree-dialog-box.active {
+          display: flex;
+        }
+        .handsfree-btn-group {
+          display: flex;
+          justify-content: flex-end;
+          gap: 10px;
+        }
+        .handsfree-btn {
+          cursor: pointer;
+          padding: 6px 14px;
+          border-radius: 6px;
+          font-size: 13px;
+          font-weight: 600;
+          border: none;
+          transition: background 0.15s ease;
+        }
+        .handsfree-btn-primary {
+          background: #00e676;
+          color: #0b2212;
+        }
+        .handsfree-btn-primary:hover {
+          background: #2ecc71;
+        }
+        .handsfree-btn-secondary {
+          background: rgba(255, 255, 255, 0.15);
+          color: #f1f2f6;
+        }
+        .handsfree-btn-secondary:hover {
+          background: rgba(255, 255, 255, 0.25);
+        }
       </style>
+      <div id="target-highlight" class="handsfree-target-highlight"></div>
       <div id="cursor" class="handsfree-cursor"></div>
       <svg id="dwell-svg" class="handsfree-dwell-svg">
         <circle id="dwell-circle" class="handsfree-dwell-circle" cx="24" cy="24" r="20" />
       </svg>
       <div id="badges"></div>
+      <div id="banner" class="handsfree-banner" role="status" aria-live="polite"></div>
+      <div id="confirm-dialog" class="handsfree-dialog-box" role="dialog" aria-modal="true">
+        <div id="confirm-msg"></div>
+        <div class="handsfree-btn-group">
+          <button id="confirm-btn-yes" class="handsfree-btn handsfree-btn-primary">Confirm [Enter]</button>
+          <button id="confirm-btn-no" class="handsfree-btn handsfree-btn-secondary">Cancel [Esc]</button>
+        </div>
+      </div>
+      <div id="break-dialog" class="handsfree-dialog-box" role="alertdialog">
+        <div id="break-msg"></div>
+        <div class="handsfree-btn-group">
+          <button id="break-btn-recalibrate" class="handsfree-btn handsfree-btn-primary">Recalibrate</button>
+          <button id="break-btn-dismiss" class="handsfree-btn handsfree-btn-secondary">Dismiss</button>
+        </div>
+      </div>
       <div id="hud" class="handsfree-hud">
         <span style="display:flex; align-items:center; gap:6px;">
           <span id="tracking-ind" class="hud-indicator"></span> Tracking
@@ -144,6 +267,16 @@ export class OverlayManager {
     `;
 
     this.cursorElement = this.shadow.getElementById("cursor") as HTMLDivElement;
+    this.targetHighlightElement = this.shadow.getElementById("target-highlight") as HTMLDivElement;
+    this.bannerElement = this.shadow.getElementById("banner") as HTMLDivElement;
+    this.confirmDialog = this.shadow.getElementById("confirm-dialog") as HTMLDivElement;
+    this.confirmMsg = this.shadow.getElementById("confirm-msg") as HTMLDivElement;
+    this.confirmBtnYes = this.shadow.getElementById("confirm-btn-yes") as HTMLButtonElement;
+    this.confirmBtnNo = this.shadow.getElementById("confirm-btn-no") as HTMLButtonElement;
+    this.breakDialog = this.shadow.getElementById("break-dialog") as HTMLDivElement;
+    this.breakMsg = this.shadow.getElementById("break-msg") as HTMLDivElement;
+    this.breakBtnRecalibrate = this.shadow.getElementById("break-btn-recalibrate") as HTMLButtonElement;
+    this.breakBtnDismiss = this.shadow.getElementById("break-btn-dismiss") as HTMLButtonElement;
     this.dwellRingSvg = this.shadow.getElementById("dwell-svg") as unknown as SVGSVGElement;
     this.dwellRingCircle = this.shadow.getElementById("dwell-circle") as unknown as SVGCircleElement;
     this.badgesContainer = this.shadow.getElementById("badges") as HTMLDivElement;
@@ -214,6 +347,115 @@ export class OverlayManager {
       voiceInd.className = `hud-indicator ${status.voiceActive ? "on" : ""}`;
     }
   }
+
+  public highlightTarget(target: ResolvedTarget | null, isLocked = false): void {
+    if (!this.targetHighlightElement) return;
+    if (!target) {
+      this.targetHighlightElement.classList.remove("active", "locked");
+      return;
+    }
+
+    this.targetHighlightElement.style.top = `${target.rect.top}px`;
+    this.targetHighlightElement.style.left = `${target.rect.left}px`;
+    this.targetHighlightElement.style.width = `${target.rect.width}px`;
+    this.targetHighlightElement.style.height = `${target.rect.height}px`;
+
+    this.targetHighlightElement.classList.add("active");
+    if (isLocked) {
+      this.targetHighlightElement.classList.add("locked");
+    } else {
+      this.targetHighlightElement.classList.remove("locked");
+    }
+  }
+
+  public showBanner(
+    message: string,
+    type: "info" | "success" | "warning" | "error" = "info",
+    timeoutMs = 3000
+  ): void {
+    if (!this.bannerElement) return;
+    if (this.bannerTimerId) {
+      clearTimeout(this.bannerTimerId);
+      this.bannerTimerId = null;
+    }
+
+    this.bannerElement.className = `handsfree-banner active ${type}`;
+    this.bannerElement.textContent = message;
+
+    if (timeoutMs > 0) {
+      this.bannerTimerId = setTimeout(() => {
+        this.hideBanner();
+      }, timeoutMs);
+    }
+  }
+
+  public hideBanner(): void {
+    if (!this.bannerElement) return;
+    this.bannerElement.classList.remove("active");
+  }
+
+  public showConfirmPrompt(
+    pending: PendingConfirmation,
+    onResolve: (confirmed: boolean) => void
+  ): void {
+    if (!this.confirmDialog || !this.confirmMsg) return;
+    this.confirmMsg.innerHTML = `
+      <div style="font-weight:700; color:#ffb142; margin-bottom:4px;">⚠️ Confirmation Required</div>
+      <div style="margin-bottom:4px;">Are you sure you want to <strong>${pending.actionType}</strong> on "<em>${pending.targetDescription}</em>"?</div>
+      <div style="font-size:12px; opacity:0.8;">Say "Confirm" or press Enter. Say "Cancel" to abort.</div>
+    `;
+    this.confirmDialog.classList.add("active");
+
+    if (this.confirmBtnYes) {
+      this.confirmBtnYes.onclick = () => {
+        this.hideConfirmPrompt();
+        onResolve(true);
+      };
+    }
+    if (this.confirmBtnNo) {
+      this.confirmBtnNo.onclick = () => {
+        this.hideConfirmPrompt();
+        onResolve(false);
+      };
+    }
+  }
+
+  public hideConfirmPrompt(): void {
+    if (!this.confirmDialog) return;
+    this.confirmDialog.classList.remove("active");
+  }
+
+  public showBreakPrompt(
+    message: string,
+    onRecalibrate: () => void,
+    onDismiss: () => void
+  ): void {
+    if (!this.breakDialog || !this.breakMsg) return;
+    this.breakMsg.innerHTML = `
+      <div style="font-weight:700; color:#00e676; margin-bottom:4px;">☕ Comfort & Strain Notice</div>
+      <div style="margin-bottom:4px;">${message}</div>
+      <div style="font-size:12px; opacity:0.8;">Say "Recalibrate" or "Dismiss".</div>
+    `;
+    this.breakDialog.classList.add("active");
+
+    if (this.breakBtnRecalibrate) {
+      this.breakBtnRecalibrate.onclick = () => {
+        this.hideBreakPrompt();
+        onRecalibrate();
+      };
+    }
+    if (this.breakBtnDismiss) {
+      this.breakBtnDismiss.onclick = () => {
+        this.hideBreakPrompt();
+        onDismiss();
+      };
+    }
+  }
+
+  public hideBreakPrompt(): void {
+    if (!this.breakDialog) return;
+    this.breakDialog.classList.remove("active");
+  }
 }
 
 let defaultOverlay: OverlayManager | null = null;
@@ -252,3 +494,43 @@ export function renderCursor(pos: CursorPosition): void {
 export function hideCursor(): void {
   getOverlay().hideCursor();
 }
+
+export function highlightTarget(target: ResolvedTarget | null, isLocked = false): void {
+  getOverlay().highlightTarget(target, isLocked);
+}
+
+export function showBanner(
+  message: string,
+  type?: "info" | "success" | "warning" | "error",
+  timeoutMs?: number
+): void {
+  getOverlay().showBanner(message, type, timeoutMs);
+}
+
+export function hideBanner(): void {
+  getOverlay().hideBanner();
+}
+
+export function showConfirmPrompt(
+  pending: PendingConfirmation,
+  onResolve: (confirmed: boolean) => void
+): void {
+  getOverlay().showConfirmPrompt(pending, onResolve);
+}
+
+export function hideConfirmPrompt(): void {
+  getOverlay().hideConfirmPrompt();
+}
+
+export function showBreakPrompt(
+  message: string,
+  onRecalibrate: () => void,
+  onDismiss: () => void
+): void {
+  getOverlay().showBreakPrompt(message, onRecalibrate, onDismiss);
+}
+
+export function hideBreakPrompt(): void {
+  getOverlay().hideBreakPrompt();
+}
+

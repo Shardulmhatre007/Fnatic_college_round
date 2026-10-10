@@ -28,11 +28,11 @@ The interface and the voice grammar support **English** and **Hindi** (including
 | Stack decision | Done (confirmed by owner) |
 | Documents (CONTEXT, PROMPT, AGENTS, RULES) | Done |
 | Repository scaffold | **Done (M0)** — all directories, CI, ADRs, shared contracts |
-| Extension code | **M1, M2, M3 & M4 Done** (Tracking, cursor, dwell, voice, commands, control panel, side panel, onboarding); M5 next |
+| Extension code | **M1, M2, M3, M4 & M6 Done** (Tracking, cursor, dwell, voice, commands, control panel, side panel, onboarding, point-and-say fusion, intent filter, fatigue); M5 next |
 | Backend code | In progress — M8 planned; health endpoint skeleton done |
-| Tests, docs, CI | M0–M4 unit tests passing (33/33 tests passing) |
+| Tests, docs, CI | M0–M6 unit tests passing (56/56 tests passing across 11 test suites) |
 
-M1, M2, M3, and M4 (Interactive game-style tutorial with bubble-pop calibration & audio synthesizers) are complete. Next is M5 (Rituals macro recorder and replay).
+M1, M2, M3, M4, and M6 (Point-and-say fusion, intent filter, fatigue management) are complete. Next is M5 (Rituals macro recorder and replay).
 
 ### M0 & M1 verification
 
@@ -116,6 +116,7 @@ M1, M2, M3, and M4 (Interactive game-style tutorial with bubble-pop calibration 
 | 12 | Onboarding | `extension/src/entrypoints/onboarding` | First-install game-style tutorial with animation and audio |
 | 13 | Shared | `extension/src/shared` | Types, Zod schemas, storage wrapper, messaging bus, i18n loader |
 | 14 | Backend | `backend/app` | Auth, settings sync, ritual packs, benchmark storage, LLM proxy, server STT |
+| 15 | Fusion | `extension/src/modules/fusion` | Point-and-say multimodal fusion, target locking, intent filter, fatigue management |
 
 ## 6. Directory Structure
 
