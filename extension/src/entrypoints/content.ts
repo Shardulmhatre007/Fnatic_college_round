@@ -9,11 +9,17 @@
  * - Detect SPA navigations (History API) and notify the service worker.
  * - Resolve ElementRef targets during ritual step execution.
  */
+import { defineContentScript } from "wxt/sandbox";
 import { isExtensionMessage } from "@/shared/messaging";
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!isExtensionMessage(message)) return;
-  // TODO(#2): implement command execution and ritual step handling (M1/M2)
-  sendResponse({ ok: true });
-  return true;
+export default defineContentScript({
+  matches: ["<all_urls>"],
+  main() {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (!isExtensionMessage(message)) return;
+      // TODO(#2): implement command execution and ritual step handling (M1/M2)
+      sendResponse({ ok: true });
+      return true;
+    });
+  },
 });

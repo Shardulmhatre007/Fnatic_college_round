@@ -42,7 +42,19 @@ approach in ADR 0001 obsolete?
 
 ---
 
-## OQ-004 — pnpm workspace root
+## OQ-005 — pnpm availability in local dev environment
+
+**Question:** `pnpm` is not installed in the development environment. CI workflows use
+`pnpm/action-setup@v4` which installs it automatically. Should local development also
+use pnpm, or switch to npm?
+
+**Chosen default:** Keep pnpm in CI (it is faster and deterministic with
+`--frozen-lockfile`). For local development without pnpm installed, run
+`npm install --legacy-peer-deps` as a fallback. The extension scripts still work with
+npm. Contributors who prefer pnpm can install it with `npm install -g pnpm`.
+
+**Action:** Add a note to the contributing section of README.md in M1.
+
 
 **Question:** Should there be a root `pnpm-workspace.yaml` tying `extension/` and
 `backend/` together?

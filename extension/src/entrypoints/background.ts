@@ -8,18 +8,21 @@
  * - Handle chrome.runtime.onInstalled to open the onboarding tab on first install.
  * - Relay ritual replay across tab navigations.
  */
+import { defineBackground } from "wxt/sandbox";
 import { isExtensionMessage } from "@/shared/messaging";
 
-chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason === "install") {
-    void chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") });
-  }
-});
+export default defineBackground(() => {
+  chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === "install") {
+      void chrome.tabs.create({ url: chrome.runtime.getURL("onboarding.html") });
+    }
+  });
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (!isExtensionMessage(message)) return;
-  // TODO(#1): implement full message routing
-  sendResponse({ ok: true });
-  // Return true to keep the channel open for async handlers added in M1+.
-  return true;
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!isExtensionMessage(message)) return;
+    // TODO(#1): implement full message routing
+    sendResponse({ ok: true });
+    // Return true to keep the channel open for async handlers added in M1+.
+    return true;
+  });
 });

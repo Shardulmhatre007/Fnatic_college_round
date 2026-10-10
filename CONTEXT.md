@@ -23,16 +23,25 @@ The interface and the voice grammar support **English** and **Hindi** (including
 ## 2. Current Status
 
 | Area | State |
-|---|---|
+|---|---| 
 | Problem analysis and feature design | Done |
 | Stack decision | Done (confirmed by owner) |
 | Documents (CONTEXT, PROMPT, AGENTS, RULES) | Done |
-| Repository scaffold | Not started |
-| Extension code | Not started |
-| Backend code | Not started |
-| Tests, docs, CI | Not started |
+| Repository scaffold | **Done (M0)** — all directories, CI, ADRs, shared contracts |
+| Extension code | In progress — M1 assigned to Frontend Agent |
+| Backend code | In progress — M8 planned; health endpoint skeleton done |
+| Tests, docs, CI | Scaffold done; feature tests start in M1 |
 
-No application code exists yet. The orchestrator creates the scaffold (see PROMPT.md).
+No application feature code exists yet. The Frontend Agent starts M1 (tracking, cursor, calibration).
+
+### M0 verification
+
+- ✅ `backend/tests/test_health.py` passes (1 passed)
+- ✅ `shared/types.ts` and `shared/schemas.ts` published
+- ✅ ADRs 0001–0004 recorded in `docs/adr/`
+- ✅ CI workflows: `.github/workflows/ci-extension.yml` and `ci-backend.yml`
+- ⏳ Extension type-check and unit tests pending `npm install` completion
+
 
 ## 3. Confirmed Technology Stack
 

@@ -8,7 +8,8 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "exactOptionalPropertyTypes": true,
+    // exactOptionalPropertyTypes is intentionally omitted: Zod's .optional() adds
+    // `| undefined` to output types which conflicts with that flag (see OQ-006).
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
     "paths": {

@@ -7,6 +7,7 @@
  * Keep schemas and types in sync. Types are derived from schemas where practical.
  */
 import { z } from "zod";
+import type { CommandAction, RitualStep } from "./types";
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -42,7 +43,7 @@ export const elementRefSchema = z
     message: "ElementRef must include at least one of text, ariaLabel, or role",
   });
 
-export const ritualStepSchema: z.ZodType = z.discriminatedUnion("op", [
+export const ritualStepSchema: z.ZodType<RitualStep> = z.discriminatedUnion("op", [
   z.object({ op: z.literal("open_url"), url: z.string().url(), newTab: z.boolean().optional() }),
   z.object({ op: z.literal("type"), target: elementRefSchema, text: z.string().min(1) }),
   z.object({ op: z.literal("click"), target: elementRefSchema }),
@@ -62,7 +63,7 @@ export const ritualStepSchema: z.ZodType = z.discriminatedUnion("op", [
     match: z.string().optional(),
   }),
   z.object({ op: z.literal("speak"), text: z.string().min(1) }),
-]);
+]) as z.ZodType<RitualStep>;
 
 export const ritualSchema = z.object({
   id: idSchema,
@@ -87,7 +88,7 @@ export const ritualSchema = z.object({
 // Commands
 // ---------------------------------------------------------------------------
 
-export const commandActionSchema: z.ZodType = z.discriminatedUnion("type", [
+export const commandActionSchema: z.ZodType<CommandAction> = z.discriminatedUnion("type", [
   z.object({ type: z.literal("scroll"), direction: z.enum(["up", "down"]), amount: z.number().positive() }),
   z.object({ type: z.literal("click") }),
   z.object({ type: z.literal("go_back") }),
@@ -106,7 +107,7 @@ export const commandActionSchema: z.ZodType = z.discriminatedUnion("type", [
   z.object({ type: z.literal("new_line") }),
   z.object({ type: z.literal("delete_last_word") }),
   z.object({ type: z.literal("run_ritual"), ritualId: idSchema }),
-]);
+]) as z.ZodType<CommandAction>;
 
 export const commandDefinitionSchema = z.object({
   id: idSchema,

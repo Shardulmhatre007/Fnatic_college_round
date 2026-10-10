@@ -2,6 +2,7 @@ import { defineConfig } from "wxt";
 
 /** WXT build configuration for the Handsfree extension. */
 export default defineConfig({
+  srcDir: "src",
   manifest: {
     name: "Handsfree",
     version: "0.1.0",
