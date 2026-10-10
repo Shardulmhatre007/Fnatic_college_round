@@ -28,11 +28,11 @@ The interface and the voice grammar support **English** and **Hindi** (including
 | Stack decision | Done (confirmed by owner) |
 | Documents (CONTEXT, PROMPT, AGENTS, RULES) | Done |
 | Repository scaffold | **Done (M0)** — all directories, CI, ADRs, shared contracts |
-| Extension code | **M1, M2 & M3 Done** (Tracking, cursor, dwell, voice, commands, control panel, side panel); M4 next |
+| Extension code | **M1, M2, M3 & M4 Done** (Tracking, cursor, dwell, voice, commands, control panel, side panel, onboarding); M5 next |
 | Backend code | In progress — M8 planned; health endpoint skeleton done |
-| Tests, docs, CI | M0, M1, M2, M3 unit tests passing (33/33 tests passing) |
+| Tests, docs, CI | M0–M4 unit tests passing (33/33 tests passing) |
 
-M1, M2, and M3 (React dark mode control panel, side panel, live settings sync, and profiles) are complete. Next is M4 (Onboarding game-style tutorial).
+M1, M2, M3, and M4 (Interactive game-style tutorial with bubble-pop calibration & audio synthesizers) are complete. Next is M5 (Rituals macro recorder and replay).
 
 ### M0 & M1 verification
 

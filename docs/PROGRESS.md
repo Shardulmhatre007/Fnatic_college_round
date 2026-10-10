@@ -6,12 +6,27 @@
 | M1 — Tracking, cursor, dwell, calibration | ✅ Done | One Euro filter, cursor manager, dwell click, overlay, calibration tested. |
 | M2 — Voice, dictation, number overlay, EN+HI | ✅ Done | Web Speech recognition, English & Hindi grammar, dictation, number overlay tested. |
 | M3 — Control panel | ✅ Done | React options control panel, side panel, live settings sync, and profiles tested. |
-| M4 — Onboarding tutorial | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
+| M4 — Onboarding tutorial | ✅ Done | 5-step game-style calibration tutorial, Web Audio synthesizers, and setup tested. |
 | M5 — Rituals | ⏳ Not started | Blocked on: M3 done. Owner: Frontend + Integration. |
 | M6 — Point-and-say fusion, intent filter, fatigue | ⏳ Not started | Blocked on: M2 done. Owner: Integration Agent. |
 | M7 — Benchmark module | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
 | M8 — Backend: auth, sync, rituals, LLM, STT | ⏳ Not started | Blocked on: M5 done. Owner: Backend Agent. |
 | M9 — Polish, docs, packaging, demo | ⏳ Not started | Blocked on: M8 done. Owner: All. |
+
+## M4 Details
+
+**Done when:** Fresh install opens onboarding tab; permissions requested; 5-target bubble calibration game completes; Web Audio synthesized sound effects play; dwell, nod, and voice commands verified interactively.
+
+**Verification steps:**
+1. `cd extension && npm run type-check` — zero type errors.
+2. `cd extension && npm test` — 33 unit tests pass across 7 test suites.
+3. `cd extension && npm run build` — bundles `onboarding.html`, `options.html`, `sidepanel.html`, worker, and content scripts into `.output/chrome-mv3/`.
+
+**Handoff:**
+- Agent: Frontend Agent
+- Changed: `entrypoints/onboarding/` (App.tsx, audio.ts, index.html, main.tsx).
+- Open items: Rituals macro recording and replay in M5.
+- Contract changes: None.
 
 ## M3 Details
 
