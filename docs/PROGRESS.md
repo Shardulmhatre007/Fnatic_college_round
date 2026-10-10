@@ -4,7 +4,7 @@
 |---|---|---|
 | M0 — Scaffold, CI, ADRs, shared contracts | ✅ Done | All files created; first commit on `develop`. |
 | M1 — Tracking, cursor, dwell, calibration | ✅ Done | One Euro filter, cursor manager, dwell click, overlay, calibration tested. |
-| M2 — Voice, dictation, number overlay, EN+HI | ⏳ Not started | Blocked on: M1 done. Owner: Frontend Agent. |
+| M2 — Voice, dictation, number overlay, EN+HI | ✅ Done | Web Speech recognition, English & Hindi grammar, dictation, number overlay tested. |
 | M3 — Control panel | ⏳ Not started | Blocked on: M2 done. Owner: Frontend Agent. |
 | M4 — Onboarding tutorial | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
 | M5 — Rituals | ⏳ Not started | Blocked on: M3 done. Owner: Frontend + Integration. |
@@ -12,6 +12,21 @@
 | M7 — Benchmark module | ⏳ Not started | Blocked on: M3 done. Owner: Frontend Agent. |
 | M8 — Backend: auth, sync, rituals, LLM, STT | ⏳ Not started | Blocked on: M5 done. Owner: Backend Agent. |
 | M9 — Polish, docs, packaging, demo | ⏳ Not started | Blocked on: M8 done. Owner: All. |
+
+## M2 Details
+
+**Done when:** Core voice commands ("scroll down", "click", "show numbers", "click 14", "pause listening") work in English and Hindi (Hinglish); dictation types into input fields; numbers highlight clickable elements.
+
+**Verification steps:**
+1. `cd extension && npm run type-check` — zero type errors.
+2. `cd extension && npm test` — 33 unit tests pass across 7 test suites.
+3. `cd extension && npm run build` — extension bundles with content script voice and overlay bindings.
+
+**Handoff:**
+- Agent: Frontend Agent
+- Changed: `voice/` (VoiceManager, continuous speech recognition, locale restart), `commands/` (fuzzy grammar matching, English/Hindi/Hinglish aliases, number extractor), `entrypoints/content.ts` (scanClickableElements, action executor, dictation buffer).
+- Open items: Offline Whisper/Vosk WASM fallback in M8.
+- Contract changes: None.
 
 ## M1 Details
 

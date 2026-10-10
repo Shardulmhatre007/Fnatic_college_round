@@ -28,11 +28,11 @@ The interface and the voice grammar support **English** and **Hindi** (including
 | Stack decision | Done (confirmed by owner) |
 | Documents (CONTEXT, PROMPT, AGENTS, RULES) | Done |
 | Repository scaffold | **Done (M0)** — all directories, CI, ADRs, shared contracts |
-| Extension code | **M1 Done** (Tracking, cursor, dwell, calibration, overlay); M2 next |
+| Extension code | **M1 & M2 Done** (Tracking, cursor, dwell, voice, commands, numbers); M3 next |
 | Backend code | In progress — M8 planned; health endpoint skeleton done |
-| Tests, docs, CI | M0 & M1 unit tests passing (26/26 tests passing) |
+| Tests, docs, CI | M0, M1, M2 unit tests passing (33/33 tests passing) |
 
-M1 tracking, One Euro cursor filter, dwell selection, overlay, and calibration modules are complete. Next is M2 (Voice commands, dictation, number overlay, EN+HI).
+M1 (tracking, cursor, dwell, overlay, calibration) and M2 (voice recognition, command grammar, dictation, number overlay, EN+HI) are complete. Next is M3 (Control panel).
 
 ### M0 & M1 verification
 
