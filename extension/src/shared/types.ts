@@ -131,7 +131,9 @@ export type CommandAction =
   | { type: "dictate_stop" }
   | { type: "new_line" }
   | { type: "delete_last_word" }
-  | { type: "run_ritual"; ritualId: Id };
+  | { type: "run_ritual"; ritualId: Id }
+  | { type: "open_sidepanel" }
+  | { type: "open_url"; url: string };
 
 // ---------------------------------------------------------------------------
 // Rituals
@@ -214,6 +216,10 @@ export interface HandsfreeSettings {
   rituals: Ritual[];
   /** Whether camera tracking is on. */
   trackingEnabled: boolean;
+  /** Whether dwell clicking is enabled. */
+  dwellEnabled?: boolean;
+  /** Dwell click delay in milliseconds. */
+  dwellMs?: number;
   /** Whether voice recognition is on. */
   voiceEnabled: boolean;
   /** Use offline STT engine instead of Web Speech API. */

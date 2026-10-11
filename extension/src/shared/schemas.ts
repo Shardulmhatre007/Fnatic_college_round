@@ -107,6 +107,8 @@ export const commandActionSchema: z.ZodType<CommandAction> = z.discriminatedUnio
   z.object({ type: z.literal("new_line") }),
   z.object({ type: z.literal("delete_last_word") }),
   z.object({ type: z.literal("run_ritual"), ritualId: idSchema }),
+  z.object({ type: z.literal("open_sidepanel") }),
+  z.object({ type: z.literal("open_url"), url: z.string().url() }),
 ]) as z.ZodType<CommandAction>;
 
 export const commandDefinitionSchema = z.object({
@@ -142,6 +144,8 @@ export const handsfreeSettingsSchema = z.object({
   commands: z.array(commandDefinitionSchema),
   rituals: z.array(ritualSchema),
   trackingEnabled: z.boolean(),
+  dwellEnabled: z.boolean().optional(),
+  dwellMs: z.number().int().min(200).max(5000).optional(),
   voiceEnabled: z.boolean(),
   offlineMode: z.boolean(),
   backendEnabled: z.boolean(),

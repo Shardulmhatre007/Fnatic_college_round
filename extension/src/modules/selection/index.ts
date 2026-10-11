@@ -7,6 +7,8 @@ export interface SelectionEvent {
 }
 
 export interface SelectionConfig {
+  /** Whether dwell clicking is enabled. */
+  dwellEnabled?: boolean;
   /** Dwell duration in ms before triggering click. Default: 800ms. */
   dwellMs: number;
   /** Radius in pixels within which cursor is considered stationary for dwell. */
@@ -18,6 +20,7 @@ export interface SelectionConfig {
 }
 
 export const DEFAULT_SELECTION_CONFIG: Readonly<SelectionConfig> = Object.freeze({
+  dwellEnabled: true,
   dwellMs: 800,
   dwellRadiusPx: 20,
   cooldownMs: 600,
@@ -78,7 +81,12 @@ export class SelectionManager {
       };
     }
 
-    // 3. Dwell calculation
+    // 3. Dwell calculation (only if dwellEnabled is true)
+    if (!this.config.dwellEnabled) {
+      this.reset();
+      return null;
+    }
+
     if (!this.dwellAnchor || !this.dwellStartTime) {
       this.dwellAnchor = { ...pos };
       this.dwellStartTime = timestamp;
@@ -125,6 +133,10 @@ export class SelectionManager {
 }
 
 const defaultSelectionManager = new SelectionManager();
+
+export function setSelectionConfig(config: Partial<SelectionConfig>): void {
+  defaultSelectionManager.setConfig(config);
+}
 
 export function feedFrame(
   pos: CursorPosition,

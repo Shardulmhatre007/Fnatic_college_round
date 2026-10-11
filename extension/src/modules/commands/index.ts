@@ -74,7 +74,17 @@ export function extractNumberFromTranscript(text: string): number | undefined {
     seventeen: 17,
     eighteen: 18,
     nineteen: 19,
+    // Common homophones recognized by Web Speech API
+    to: 2,
+    too: 2,
+    tree: 3,
+    for: 4,
+    won: 1,
+    ate: 8,
     twenty: 20,
+    thirty: 30,
+    forty: 40,
+    fifty: 50,
     // Hindi / Hinglish
     ek: 1,
     do: 2,
@@ -96,6 +106,16 @@ export function extractNumberFromTranscript(text: string): number | undefined {
     atharah: 18,
     unnees: 19,
     bees: 20,
+    ikkees: 21,
+    baees: 22,
+    teis: 23,
+    chaubees: 24,
+    pachchees: 25,
+    chhabees: 26,
+    sattaees: 27,
+    atthaees: 28,
+    untees: 29,
+    tees: 30,
     "एक": 1,
     "दो": 2,
     "तीन": 3,
@@ -223,6 +243,16 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     enabled: true,
   },
   {
+    id: "cmd_open_sidepanel",
+    phrase: "open side panel",
+    aliases: {
+      en: ["open side panel", "side panel", "open panel", "panel"],
+      hi: ["side panel खोलो", "panel खोलो", "side panel kholo", "panel kholo"],
+    },
+    action: { type: "open_sidepanel" },
+    enabled: true,
+  },
+  {
     id: "cmd_show_numbers",
     phrase: "show numbers",
     aliases: {
@@ -300,6 +330,79 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
       hi: ["आखिरी शब्द मिटाओ", "aakhri shabd hatao"],
     },
     action: { type: "delete_last_word" },
+    enabled: true,
+  },
+  // -------------------------------------------------------------------------
+  // Website navigation commands — "search youtube", "open google", "go to..."
+  // -------------------------------------------------------------------------
+  {
+    id: "cmd_open_youtube",
+    phrase: "open youtube",
+    aliases: {
+      en: ["open youtube", "search youtube", "go to youtube", "youtube", "youtube kholo"],
+      hi: ["youtube खोलो", "youtube pe jao", "youtube chalao"],
+    },
+    action: { type: "open_url", url: "https://www.youtube.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_google",
+    phrase: "open google",
+    aliases: {
+      en: ["open google", "search google", "go to google", "google", "google kholo"],
+      hi: ["google खोलो", "google pe jao"],
+    },
+    action: { type: "open_url", url: "https://www.google.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_gmail",
+    phrase: "open gmail",
+    aliases: {
+      en: ["open gmail", "go to gmail", "gmail", "check email", "open email"],
+      hi: ["gmail खोलो", "email kholo"],
+    },
+    action: { type: "open_url", url: "https://mail.google.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_github",
+    phrase: "open github",
+    aliases: {
+      en: ["open github", "go to github", "github"],
+      hi: ["github खोलो"],
+    },
+    action: { type: "open_url", url: "https://www.github.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_maps",
+    phrase: "open maps",
+    aliases: {
+      en: ["open maps", "go to maps", "google maps", "open google maps"],
+      hi: ["maps खोलो", "google maps kholo"],
+    },
+    action: { type: "open_url", url: "https://maps.google.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_wikipedia",
+    phrase: "open wikipedia",
+    aliases: {
+      en: ["open wikipedia", "go to wikipedia", "wikipedia"],
+      hi: ["wikipedia खोलो"],
+    },
+    action: { type: "open_url", url: "https://www.wikipedia.org" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_twitter",
+    phrase: "open twitter",
+    aliases: {
+      en: ["open twitter", "go to twitter", "twitter", "open x", "go to x"],
+      hi: ["twitter खोलो"],
+    },
+    action: { type: "open_url", url: "https://www.x.com" },
     enabled: true,
   },
 ];

@@ -14,7 +14,7 @@ import { isExtensionMessage } from "@/shared/messaging";
 import { loadSettings, onSettingsChanged } from "@/shared/storage";
 import { updateCursor, type ViewportSize } from "@/modules/cursor/index";
 import { renderCursor, showDwellRing, hideDwellRing, showNumbers, hideNumbers } from "@/modules/overlay/index";
-import { feedFrame, type SelectionEvent } from "@/modules/selection/index";
+import { feedFrame, setSelectionConfig, type SelectionEvent } from "@/modules/selection/index";
 import { getVoiceManager } from "@/modules/voice/index";
 import { matchCommand } from "@/modules/commands/index";
 import type { LandmarkResult, NumberBadge } from "@/shared/types";
@@ -23,7 +23,8 @@ let currentNumberBadges: { badge: NumberBadge; element: HTMLElement }[] = [];
 
 function scanClickableElements(): NumberBadge[] {
   currentNumberBadges = [];
-  const selector = "a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1']), [role='button']";
+  const selector =
+    "a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1']), [role='button'], [role='link'], [role='tab'], yt-formatted-string[has-link-only_], ytd-thumbnail, ytd-rich-item-renderer #video-title";
   const elements = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
 
   let index = 1;
@@ -53,6 +54,15 @@ function scanClickableElements(): NumberBadge[] {
   }
 
   return badges;
+}
+
+/** Send a tab/navigation command to the background service worker. */
+function sendToBackground(type: string, payload?: Record<string, unknown>): void {
+  try {
+    void chrome.runtime.sendMessage({ type, payload: payload ?? {} });
+  } catch {
+    // Safe ignore – background may be unavailable briefly on reload.
+  }
 }
 
 function executeAction(actionType: string, data?: Record<string, unknown>): void {
@@ -108,7 +118,38 @@ function executeAction(actionType: string, data?: Record<string, unknown>): void
       }
       const match = currentNumberBadges.find((b) => b.badge.n === num);
       if (match) {
-        match.element.click();
+        const el = match.element;
+        try {
+          el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+          el.focus({ preventScroll: true });
+        } catch {
+          // Safe ignore
+        }
+
+        // Fire comprehensive mouse events for YouTube and modern SPAs
+        const rect = el.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        const eventInit: MouseEventInit = {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX,
+          clientY,
+        };
+
+        el.dispatchEvent(new MouseEvent("pointerdown", eventInit));
+        el.dispatchEvent(new MouseEvent("mousedown", eventInit));
+        el.dispatchEvent(new MouseEvent("pointerup", eventInit));
+        el.dispatchEvent(new MouseEvent("mouseup", eventInit));
+        el.click();
+
+        // Also if element has an anchor or button parent/child, trigger click on it too
+        const clickableAncestor = el.closest("a, button, [role='button'], ytd-thumbnail, ytd-compact-video-renderer") as HTMLElement | null;
+        if (clickableAncestor && clickableAncestor !== el) {
+          clickableAncestor.click();
+        }
+
         hideNumbers();
         currentNumberBadges = [];
       }
@@ -130,6 +171,30 @@ function executeAction(actionType: string, data?: Record<string, unknown>): void
       }
       break;
     }
+    // Tab and navigation actions are handled by the background service worker.
+    case "next_tab":
+      sendToBackground("CMD_NEXT_TAB");
+      break;
+    case "prev_tab":
+      sendToBackground("CMD_PREV_TAB");
+      break;
+    case "close_tab":
+      sendToBackground("CMD_CLOSE_TAB");
+      break;
+    case "new_tab":
+      sendToBackground("CMD_NEW_TAB");
+      break;
+    case "open_sidepanel":
+      sendToBackground("CMD_OPEN_SIDEPANEL");
+      break;
+    case "open_url": {
+      const url = typeof data?.url === "string" ? data.url : "";
+      if (url) {
+        // Navigate the current tab to the URL.
+        window.location.href = url;
+      }
+      break;
+    }
   }
 }
 
@@ -146,6 +211,10 @@ export default defineContentScript({
       if (settings.voiceEnabled) {
         voiceManager.startListening(settings.locale);
       }
+      setSelectionConfig({
+        dwellEnabled: settings.dwellEnabled ?? false,
+        dwellMs: settings.dwellMs ?? 1200,
+      });
     });
 
     onSettingsChanged((changes) => {
@@ -158,6 +227,12 @@ export default defineContentScript({
         } else {
           voiceManager.stopListening();
         }
+      }
+      if (changes.dwellEnabled !== undefined || changes.dwellMs !== undefined) {
+        setSelectionConfig({
+          ...(changes.dwellEnabled !== undefined ? { dwellEnabled: changes.dwellEnabled } : {}),
+          ...(changes.dwellMs !== undefined ? { dwellMs: changes.dwellMs } : {}),
+        });
       }
     });
 

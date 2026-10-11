@@ -37,7 +37,13 @@ export type MessageType =
   // UI sync (service worker ↔ options/sidepanel)
   | "UI_SETTINGS_CHANGED"
   | "UI_STATUS_UPDATE"
-  | "UI_CALIBRATION_DONE";
+  | "UI_CALIBRATION_DONE"
+  // Tab management (content script → service worker)
+  | "CMD_NEXT_TAB"
+  | "CMD_PREV_TAB"
+  | "CMD_CLOSE_TAB"
+  | "CMD_NEW_TAB"
+  | "CMD_OPEN_SIDEPANEL";
 
 // ---------------------------------------------------------------------------
 // Payload shapes
@@ -153,7 +159,12 @@ export type ExtensionMessage =
   | { type: "RITUAL_FAILED"; payload: RitualFailedPayload }
   | { type: "UI_SETTINGS_CHANGED"; payload: UiSettingsChangedPayload }
   | { type: "UI_STATUS_UPDATE"; payload: UiStatusUpdatePayload }
-  | { type: "UI_CALIBRATION_DONE"; payload: UiCalibrationDonePayload };
+  | { type: "UI_CALIBRATION_DONE"; payload: UiCalibrationDonePayload }
+  | { type: "CMD_NEXT_TAB"; payload: Record<string, never> }
+  | { type: "CMD_PREV_TAB"; payload: Record<string, never> }
+  | { type: "CMD_CLOSE_TAB"; payload: Record<string, never> }
+  | { type: "CMD_NEW_TAB"; payload: Record<string, never> }
+  | { type: "CMD_OPEN_SIDEPANEL"; payload: Record<string, never> };
 
 /** Helper to narrow an unknown runtime value to ExtensionMessage. */
 export function isExtensionMessage(value: unknown): value is ExtensionMessage {

@@ -56,6 +56,7 @@ export const OnboardingApp: React.FC = () => {
   const [activeNumberBadge, setActiveNumberBadge] = useState<number | null>(null);
   const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
   const [voiceErrorMsg, setVoiceErrorMsg] = useState<string | null>(null);
+  const [lastOpenedUrl, setLastOpenedUrl] = useState<string | null>(null);
   const sandboxScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Expose the current step to the tracker callback without recreating the tracker.
@@ -85,6 +86,16 @@ export const OnboardingApp: React.FC = () => {
         setActiveGesture(landmarks.gestures.join(", "));
       } else {
         setActiveGesture("Head Tracking (Active)");
+      }
+
+      // Relay landmarks to the active tab via the background service worker
+      try {
+        void chrome.runtime.sendMessage({
+          type: "TRACKING_LANDMARKS",
+          payload: landmarks,
+        });
+      } catch {
+        // Safe ignore
       }
 
       const currentStep = stepRef.current;
@@ -240,6 +251,18 @@ export const OnboardingApp: React.FC = () => {
           voiceManager.setDictating(true);
         } else if (actionType === "dictate_stop") {
           voiceManager.setDictating(false);
+        }
+        // 6. Website navigation
+        else if (actionType === "open_url") {
+          const url = (match.command.action as { url?: string }).url ?? "";
+          if (url) {
+            setLastOpenedUrl(url);
+            setLastExecutedCommand(`Navigate → ${url}`);
+            soundEffects.playStepSuccess();
+            setVoiceTestPassed(true);
+            // Navigate after a short preview delay
+            setTimeout(() => { window.location.href = url; }, 1200);
+          }
         }
       } else {
         // Direct speech typing into text box when speaking phrases like "how are you"
@@ -536,6 +559,22 @@ export const OnboardingApp: React.FC = () => {
                   A subtle downward head nod immediately confirms the selection without waiting for the timer.
                 </div>
               </div>
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60">
+                <div className="font-semibold text-xs text-emerald-400 flex items-center gap-1.5">
+                  <span>👁️</span> Double Blink = Click
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  Blink both eyes twice quickly (within 500 ms) to click whatever your head cursor is pointing at.
+                </div>
+              </div>
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60">
+                <div className="font-semibold text-xs text-amber-400 flex items-center gap-1.5">
+                  <span>🌐</span> Voice Navigation
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  Say <strong className="text-white">"open youtube"</strong> or <strong className="text-white">"search google"</strong> to navigate to any website hands-free.
+                </div>
+              </div>
             </div>
 
             <div className="p-8 rounded-2xl border border-slate-800 bg-slate-900/40 flex items-center justify-center gap-4">
@@ -739,12 +778,14 @@ export const OnboardingApp: React.FC = () => {
             </div>
 
             {/* Quick voice command cheatsheet buttons */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-left">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-left">
               {[
                 { en: 'Say "scroll down"', act: () => sandboxScrollRef.current?.scrollBy({ top: 120, behavior: "smooth" }) },
                 { en: 'Say "how are you"', act: () => setSandboxInputText((p) => (p ? `${p} how are you` : "how are you")) },
                 { en: 'Say "click 14"', act: () => { setActiveNumberBadge(14); soundEffects.playStepSuccess(); setTimeout(() => setActiveNumberBadge(null), 1400); } },
                 { en: 'Say "delete last word"', act: () => setSandboxInputText((p) => p.trimEnd().split(" ").slice(0, -1).join(" ")) },
+                { en: 'Say "open youtube"', act: () => { setLastOpenedUrl("https://www.youtube.com"); setLastExecutedCommand("Navigate → youtube.com"); soundEffects.playStepSuccess(); setVoiceTestPassed(true); } },
+                { en: 'Say "open google"', act: () => { setLastOpenedUrl("https://www.google.com"); setLastExecutedCommand("Navigate → google.com"); soundEffects.playStepSuccess(); setVoiceTestPassed(true); } },
               ].map((item, idx) => (
                 <div
                   key={idx}
@@ -760,6 +801,14 @@ export const OnboardingApp: React.FC = () => {
                 </div>
               ))}
             </div>
+
+            {/* Website navigation preview banner */}
+            {lastOpenedUrl && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300">
+                <span>🌐</span>
+                <span>Navigating to <strong className="text-white">{lastOpenedUrl}</strong>…</span>
+              </div>
+            )}
 
             {voiceTestPassed && (
               <div className="text-xs text-emerald-400 font-medium">
