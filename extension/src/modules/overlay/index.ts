@@ -87,17 +87,20 @@ export class OverlayManager {
           transition: stroke-dashoffset 0.04s linear;
         }
         .handsfree-badge {
-          position: absolute;
-          background: #ff3d00;
-          color: #ffffff;
+          position: fixed;
+          background: #ffe600;
+          color: #000000;
           font-family: system-ui, -apple-system, sans-serif;
-          font-weight: 700;
-          font-size: 13px;
-          padding: 2px 6px;
+          font-weight: 800;
+          font-size: 12px;
+          line-height: 1;
+          padding: 2px 5px;
           border-radius: 4px;
-          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+          border: 1.5px solid #000000;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
           pointer-events: none;
-          z-index: 100;
+          z-index: 2147483647;
+          transform: translate(-50%, -50%);
         }
         .handsfree-hud {
           position: fixed;

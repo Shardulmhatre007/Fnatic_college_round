@@ -17,6 +17,7 @@ import { renderCursor, showDwellRing, hideDwellRing, showNumbers, hideNumbers } 
 import { feedFrame, setSelectionConfig, type SelectionEvent } from "@/modules/selection/index";
 import { getVoiceManager } from "@/modules/voice/index";
 import { matchCommand } from "@/modules/commands/index";
+import { parseIntentWithGemini } from "@/modules/voice/gemini-intent";
 import type { LandmarkResult, NumberBadge } from "@/shared/types";
 
 let currentNumberBadges: { badge: NumberBadge; element: HTMLElement }[] = [];
@@ -24,7 +25,7 @@ let currentNumberBadges: { badge: NumberBadge; element: HTMLElement }[] = [];
 function scanClickableElements(): NumberBadge[] {
   currentNumberBadges = [];
   const selector =
-    "a[href], button, input, select, textarea, [tabindex]:not([tabindex='-1']), [role='button'], [role='link'], [role='tab'], yt-formatted-string[has-link-only_], ytd-thumbnail, ytd-rich-item-renderer #video-title";
+    "a, button, input, select, textarea, [role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='checkbox'], [role='option'], [tabindex]:not([tabindex='-1']), [onclick], yt-formatted-string, ytd-thumbnail, ytd-rich-item-renderer #video-title, .yt-spec-button-shape-next";
   const elements = Array.from(document.querySelectorAll(selector)) as HTMLElement[];
 
   let index = 1;
@@ -32,7 +33,18 @@ function scanClickableElements(): NumberBadge[] {
 
   for (const el of elements) {
     const rect = el.getBoundingClientRect();
-    if (rect.width > 0 && rect.height > 0 && rect.top >= 0 && rect.top <= window.innerHeight) {
+    // Must be visible within current viewport
+    if (
+      rect.width > 8 &&
+      rect.height > 8 &&
+      rect.top >= 0 &&
+      rect.top <= window.innerHeight &&
+      rect.left >= 0 &&
+      rect.left <= window.innerWidth
+    ) {
+      // Avoid duplicate overlapping ancestor badges
+      const isHidden = window.getComputedStyle(el).visibility === "hidden" || window.getComputedStyle(el).display === "none";
+      if (isHidden) continue;
       const badge: NumberBadge = {
         n: index,
         rect: {
@@ -247,30 +259,38 @@ export default defineContentScript({
         // Safe ignore
       }
 
-      // If dictating or if an input/textarea is actively focused and not a matching action command
       const state = voiceManager.getState();
+      // Check if an input, textarea, or contenteditable (e.g. YouTube search box or docs) is focused
       const active = document.activeElement;
-      const isInputActive = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
+      const isInputActive =
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && (active.isContentEditable || active.getAttribute("contenteditable") === "true"));
 
-      // If user is explicitly dictating or text input is focused:
+      const insertText = (textToType: string) => {
+        if (!active || !(active instanceof HTMLElement)) return;
+        if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+          active.value += (active.value.length > 0 ? " " : "") + textToType;
+          active.dispatchEvent(new Event("input", { bubbles: true }));
+          active.dispatchEvent(new Event("change", { bubbles: true }));
+        } else if (active.isContentEditable || active.getAttribute("contenteditable") === "true") {
+          active.textContent = (active.textContent ? `${active.textContent} ` : "") + textToType;
+          active.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      };
+
+      // 1. If user is explicitly dictating or text input is focused:
       if (state.isDictating && event.isFinal) {
         if (isInputActive) {
-          active.value += (active.value.length > 0 ? " " : "") + event.text;
-          active.dispatchEvent(new Event("input", { bubbles: true }));
+          insertText(event.text);
         }
         return;
       }
 
-      // Check command matching
+      // 2. Check local fuzzy command grammar matching
       const match = matchCommand(event.text, event.locale);
 
-      // If no command matched and a text box is actively focused, type into it directly!
-      if (!match && isInputActive && event.isFinal) {
-        active.value += (active.value.length > 0 ? " " : "") + event.text;
-        active.dispatchEvent(new Event("input", { bubbles: true }));
-        return;
-      }
-      if (match && match.confidence >= 0.75) {
+      if (match && match.confidence >= 0.70) {
         const action = match.command.action;
         if (action.type === "dictate_start") {
           voiceManager.setDictating(true);
@@ -283,6 +303,25 @@ export default defineContentScript({
         } else {
           executeAction(action.type, action as unknown as Record<string, unknown>);
         }
+        return;
+      }
+
+      // 3. If an input/search box is focused and user spoke final words, type them in!
+      if (isInputActive && event.isFinal) {
+        insertText(event.text);
+        return;
+      }
+
+      // 4. Gemini Free Intent Model Fallback
+      if (event.isFinal) {
+        void parseIntentWithGemini(event.text).then((aiAction) => {
+          if (!aiAction) return;
+          if (aiAction.type === "dictate") {
+            if (isInputActive) insertText(aiAction.text);
+          } else {
+            executeAction(aiAction.type, aiAction as unknown as Record<string, unknown>);
+          }
+        });
       }
     });
 
@@ -308,7 +347,41 @@ export default defineContentScript({
         if (selection) {
           const target = document.elementFromPoint(selection.position.x, selection.position.y);
           if (target && target instanceof HTMLElement) {
-            target.click();
+            // If target is inside an input/search box container, find the actual input
+            const inputEl = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement
+              ? target
+              : (target.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null) ||
+                (target.closest("form, ytd-searchbox")?.querySelector("input, textarea") as HTMLInputElement | HTMLTextAreaElement | null);
+
+            const clickTarget = inputEl || target;
+            try {
+              clickTarget.focus({ preventScroll: true });
+            } catch {
+              // Safe ignore
+            }
+
+            const rect = clickTarget.getBoundingClientRect();
+            const clientX = rect.left + rect.width / 2;
+            const clientY = rect.top + rect.height / 2;
+            const eventInit: MouseEventInit = {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX,
+              clientY,
+            };
+
+            clickTarget.dispatchEvent(new MouseEvent("pointerdown", eventInit));
+            clickTarget.dispatchEvent(new MouseEvent("mousedown", eventInit));
+            clickTarget.dispatchEvent(new MouseEvent("pointerup", eventInit));
+            clickTarget.dispatchEvent(new MouseEvent("mouseup", eventInit));
+            clickTarget.click();
+
+            // Also check for clickable ancestor (e.g. YouTube card or button)
+            const parentButton = clickTarget.closest("button, a, [role='button']") as HTMLElement | null;
+            if (parentButton && parentButton !== clickTarget) {
+              parentButton.click();
+            }
           }
           hideDwellRing();
         } else {
