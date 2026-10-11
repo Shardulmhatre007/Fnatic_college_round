@@ -5,7 +5,7 @@
   "description": "Handsfree – webcam and voice browser control extension",
   "scripts": {
     "dev": "wxt",
-    "build": "wxt build",
+    "build": "wxt build && node -e \"const fs = require('fs'); fs.cpSync('.output/chrome-mv3', 'dist', {recursive: true}); fs.cpSync('.output/chrome-mv3', '../dist', {recursive: true});\"",
     "type-check": "tsc --noEmit",
     "lint": "eslint src --max-warnings 0",
     "format": "prettier --write src",
