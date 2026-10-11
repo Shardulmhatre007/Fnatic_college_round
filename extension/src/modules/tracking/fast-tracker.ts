@@ -1,4 +1,4 @@
-import type { LandmarkResult } from "@/shared/types";
+import type { GestureId, LandmarkResult } from "@/shared/types";
 
 export type TrackerCallback = (result: LandmarkResult) => void;
 
@@ -6,6 +6,8 @@ export type TrackerCallback = (result: LandmarkResult) => void;
 const SEARCH_WINDOW_FRACTION = 0.22;
 /** Pixel-luminosity difference above which a pixel counts as motion. */
 const MOTION_DIFF_THRESHOLD = 45;
+/** Simulated pitch delta (in tracker degrees) that triggers a nod gesture. */
+const NOD_THRESHOLD_DEG = 6;
 /** Pixels closer than this to the previous head estimate are weighted by motion. */
 const SAMPLE_STEP = 2;
 
@@ -25,6 +27,8 @@ export class FastCameraTracker {
   private neutralPos = { x: 0.5, y: 0.5 };
   private currentHead = { x: 0.5, y: 0.5 };
   private lastTimestamp = 0;
+  private lastPitch = 0;
+  private nodArmed = true;
 
   constructor(video: HTMLVideoElement) {
     this.video = video;
@@ -39,6 +43,8 @@ export class FastCameraTracker {
     this.isTracking = true;
     this.prevFrameData = null;
     this.lastTimestamp = performance.now();
+    this.lastPitch = 0;
+    this.nodArmed = true;
     this.loop();
   }
 
@@ -107,18 +113,29 @@ export class FastCameraTracker {
           const normX = sumX / weight / this.canvas.width;
           const normY = sumY / weight / this.canvas.height;
 
-          // Smooth towards motion center
-          this.currentHead.x = this.currentHead.x * 0.7 + normX * 0.3;
-          this.currentHead.y = this.currentHead.y * 0.7 + normY * 0.3;
+          // Ease towards the weighted motion centre for a stable cursor.
+          this.currentHead.x = this.currentHead.x * 0.6 + normX * 0.4;
+          this.currentHead.y = this.currentHead.y * 0.6 + normY * 0.4;
         }
 
-        // Compute simulated pitch and yaw from offset
+        // Map the head offset to simulated yaw/pitch. The raw camera frame is not
+        // mirrored, so moving the head to the user's right lowers x; the cursor module
+        // expects the same sign so the on-screen cursor follows the mirrored preview.
         const dx = (this.currentHead.x - this.neutralPos.x) * 90;
         const dy = (this.currentHead.y - this.neutralPos.y) * 90;
-
-        // Mirrored camera feed: invert yaw
-        const yaw = -dx;
+        const yaw = dx;
         const pitch = dy;
+
+        // Nod detection: a quick downward pitch that then recovers, edge-triggered.
+        const gestures: GestureId[] = [];
+        const pitchDelta = pitch - this.lastPitch;
+        if (this.nodArmed && pitchDelta > NOD_THRESHOLD_DEG) {
+          gestures.push("nod");
+          this.nodArmed = false;
+        } else if (pitchDelta < -NOD_THRESHOLD_DEG) {
+          this.nodArmed = true;
+        }
+        this.lastPitch = pitch;
 
         const fakeFaceLandmarks = [
           { x: this.currentHead.x, y: this.currentHead.y, z: 0 },
@@ -133,7 +150,7 @@ export class FastCameraTracker {
           face: fakeFaceLandmarks,
           leftHand: null,
           rightHand: null,
-          gestures: [],
+          gestures,
           headPose: {
             yaw,
             pitch,

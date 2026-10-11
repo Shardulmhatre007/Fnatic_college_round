@@ -31,6 +31,8 @@ function buildDefaultSettings(): HandsfreeSettings {
     commands: [],
     rituals: [],
     trackingEnabled: false,
+    dwellEnabled: false,
+    dwellMs: 1200,
     voiceEnabled: false,
     offlineMode: false,
     backendEnabled: false,

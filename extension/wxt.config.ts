@@ -19,6 +19,7 @@ export default defineConfig({
       "offscreen",
       "sidePanel",
       "scripting",
+      "microphone",
     ],
     // host_permissions are kept minimal; content script matches cover page access.
     host_permissions: ["<all_urls>"],

@@ -70,6 +70,21 @@ export function extractNumberFromTranscript(text: string): number | undefined {
     thirteen: 13,
     fourteen: 14,
     fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+    // Common homophones recognized by Web Speech API
+    to: 2,
+    too: 2,
+    tree: 3,
+    for: 4,
+    won: 1,
+    ate: 8,
+    twenty: 20,
+    thirty: 30,
+    forty: 40,
+    fifty: 50,
     // Hindi / Hinglish
     ek: 1,
     do: 2,
@@ -81,6 +96,26 @@ export function extractNumberFromTranscript(text: string): number | undefined {
     aath: 8,
     nau: 9,
     dus: 10,
+    gyarah: 11,
+    baarah: 12,
+    terah: 13,
+    chaudah: 14,
+    pandrah: 15,
+    solah: 16,
+    satrah: 17,
+    atharah: 18,
+    unnees: 19,
+    bees: 20,
+    ikkees: 21,
+    baees: 22,
+    teis: 23,
+    chaubees: 24,
+    pachchees: 25,
+    chhabees: 26,
+    sattaees: 27,
+    atthaees: 28,
+    untees: 29,
+    tees: 30,
     "एक": 1,
     "दो": 2,
     "तीन": 3,
@@ -91,6 +126,16 @@ export function extractNumberFromTranscript(text: string): number | undefined {
     "आठ": 8,
     "नौ": 9,
     "दस": 10,
+    "ग्यारह": 11,
+    "बारह": 12,
+    "तेरह": 13,
+    "चौदह": 14,
+    "पंद्रह": 15,
+    "सोलह": 16,
+    "सत्रह": 17,
+    "अठारह": 18,
+    "उन्नीस": 19,
+    "बीस": 20,
   };
 
   const words = text.split(" ");
@@ -111,8 +156,8 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     id: "cmd_scroll_down",
     phrase: "scroll down",
     aliases: {
-      en: ["scroll down", "go down", "page down"],
-      hi: ["नीचे scroll करो", "नीचे जाओ", "neeche jao", "neeche scroll"],
+      en: ["scroll down", "go down", "page down", "down", "scroll down please", "scroll bottom"],
+      hi: ["नीचे scroll करो", "नीचे जाओ", "neeche jao", "neeche scroll", "neeche", "scroll down"],
     },
     action: { type: "scroll", direction: "down", amount: 400 },
     enabled: true,
@@ -121,8 +166,8 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     id: "cmd_scroll_up",
     phrase: "scroll up",
     aliases: {
-      en: ["scroll up", "go up", "page up"],
-      hi: ["ऊपर scroll करो", "ऊपर जाओ", "upar jao", "upar scroll"],
+      en: ["scroll up", "go up", "page up", "up", "scroll up please", "scroll top"],
+      hi: ["ऊपर scroll करो", "ऊपर जाओ", "upar jao", "upar scroll", "upar", "scroll up"],
     },
     action: { type: "scroll", direction: "up", amount: 400 },
     enabled: true,
@@ -131,8 +176,8 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     id: "cmd_click",
     phrase: "click",
     aliases: {
-      en: ["click", "press", "select"],
-      hi: ["click", "दबाओ", "chuno"],
+      en: ["click", "press", "select", "tap", "hit"],
+      hi: ["click", "दबाओ", "chuno", "click karo", "daba do"],
     },
     action: { type: "click" },
     enabled: true,
@@ -198,11 +243,50 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     enabled: true,
   },
   {
+    id: "cmd_open_sidepanel",
+    phrase: "open side panel",
+    aliases: {
+      en: ["open side panel", "side panel", "open panel", "panel", "panel open", "open sidebar", "sidebar"],
+      hi: [
+        "side panel खोलो",
+        "panel खोलो",
+        "side panel kholo",
+        "panel kholo",
+        "sidepanel kholo",
+        "open panel",
+        "panel open karo",
+        "sidebar kholo",
+        "panel dikhao",
+      ],
+    },
+    action: { type: "open_sidepanel" },
+    enabled: true,
+  },
+  {
     id: "cmd_show_numbers",
     phrase: "show numbers",
     aliases: {
-      en: ["show numbers", "numbers on", "show badges"],
-      hi: ["numbers दिखाओ", "नंबर दिखाओ", "numbers dikhao"],
+      en: [
+        "show numbers",
+        "numbers on",
+        "show badges",
+        "numbers",
+        "number labels",
+        "number mode",
+        "tag elements",
+      ],
+      hi: [
+        "numbers दिखाओ",
+        "नंबर दिखाओ",
+        "numbers dikhao",
+        "numbers dihkao",
+        "number dikhao",
+        "number dihkao",
+        "numbers dikha do",
+        "number dikha do",
+        "number lagao",
+        "numbers chalu karo",
+      ],
     },
     action: { type: "show_numbers" },
     enabled: true,
@@ -211,8 +295,15 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     id: "cmd_hide_numbers",
     phrase: "hide numbers",
     aliases: {
-      en: ["hide numbers", "numbers off", "hide badges"],
-      hi: ["numbers छुपाओ", "नंबर छुपाओ", "numbers chhupao"],
+      en: ["hide numbers", "numbers off", "hide badges", "clear numbers"],
+      hi: [
+        "numbers छुपाओ",
+        "नंबर छुपाओ",
+        "numbers chhupao",
+        "number hatao",
+        "numbers hatao",
+        "number band karo",
+      ],
     },
     action: { type: "hide_numbers" },
     enabled: true,
@@ -337,6 +428,79 @@ export const DEFAULT_COMMANDS: CommandDefinition[] = [
     action: { type: "recalibrate" },
     enabled: true,
   },
+  // -------------------------------------------------------------------------
+  // Website navigation commands — "search youtube", "open google", "go to..."
+  // -------------------------------------------------------------------------
+  {
+    id: "cmd_open_youtube",
+    phrase: "open youtube",
+    aliases: {
+      en: ["open youtube", "search youtube", "go to youtube", "youtube", "youtube kholo"],
+      hi: ["youtube खोलो", "youtube pe jao", "youtube chalao"],
+    },
+    action: { type: "open_url", url: "https://www.youtube.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_google",
+    phrase: "open google",
+    aliases: {
+      en: ["open google", "search google", "go to google", "google", "google kholo"],
+      hi: ["google खोलो", "google pe jao"],
+    },
+    action: { type: "open_url", url: "https://www.google.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_gmail",
+    phrase: "open gmail",
+    aliases: {
+      en: ["open gmail", "go to gmail", "gmail", "check email", "open email"],
+      hi: ["gmail खोलो", "email kholo"],
+    },
+    action: { type: "open_url", url: "https://mail.google.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_github",
+    phrase: "open github",
+    aliases: {
+      en: ["open github", "go to github", "github"],
+      hi: ["github खोलो"],
+    },
+    action: { type: "open_url", url: "https://www.github.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_maps",
+    phrase: "open maps",
+    aliases: {
+      en: ["open maps", "go to maps", "google maps", "open google maps"],
+      hi: ["maps खोलो", "google maps kholo"],
+    },
+    action: { type: "open_url", url: "https://maps.google.com" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_wikipedia",
+    phrase: "open wikipedia",
+    aliases: {
+      en: ["open wikipedia", "go to wikipedia", "wikipedia"],
+      hi: ["wikipedia खोलो"],
+    },
+    action: { type: "open_url", url: "https://www.wikipedia.org" },
+    enabled: true,
+  },
+  {
+    id: "cmd_open_twitter",
+    phrase: "open twitter",
+    aliases: {
+      en: ["open twitter", "go to twitter", "twitter", "open x", "go to x"],
+      hi: ["twitter खोलो"],
+    },
+    action: { type: "open_url", url: "https://www.x.com" },
+    enabled: true,
+  },
 ];
 
 /**
@@ -350,13 +514,19 @@ export function matchCommand(
   const normInput = normaliseTranscript(transcript);
   if (!normInput) return null;
 
-  // Check special dynamic pattern: "click <number>" or "number <n>" or "<n> दबाओ"
-  const clickNumberPattern =
-    /(?:click|press|number|choose|select|dabaao|chuno)\s+(\d+|[a-zA-Z]+)|(?:number\s+)?(\d+)/i;
-  const matchNum = normInput.match(clickNumberPattern);
-  if (matchNum) {
-    const extractedNum = extractNumberFromTranscript(normInput);
-    if (extractedNum !== undefined && extractedNum > 0) {
+  // Check special dynamic pattern: "click <number>", "number <n>", "<n> number", or direct number like "14", "12", "fourteen", "चौदह"
+  const extractedNum = extractNumberFromTranscript(normInput);
+  if (extractedNum !== undefined && extractedNum > 0) {
+    const isExplicitAction =
+      /(?:click|press|number|choose|select|dabaao|chuno|daba|karo|target)\b/i.test(normInput) ||
+      normInput.trim() === String(extractedNum) ||
+      normInput.trim() === `${extractedNum} number` ||
+      normInput.trim() === `number ${extractedNum}`;
+
+    // In noisy environments speech might capture "hey click 14 please" or "14 please"
+    const isUtteranceWithNumber = normInput.split(/\s+/).length <= 5;
+
+    if (isExplicitAction || isUtteranceWithNumber) {
       return {
         command: {
           id: `cmd_click_number_${extractedNum}`,

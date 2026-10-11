@@ -8,6 +8,8 @@ import {
 } from "@/modules/tracking/mediapipe-face-tracker";
 import { updateCursor, type ViewportSize } from "@/modules/cursor/index";
 import { feedFrame, type SelectionEvent } from "@/modules/selection/index";
+import { getVoiceManager } from "@/modules/voice/index";
+import { matchCommand } from "@/modules/commands/index";
 import type { LandmarkResult } from "@/shared/types";
 
 interface Bubble {
@@ -30,11 +32,10 @@ export const OnboardingApp: React.FC = () => {
   const trackerRef = useRef<HeadTracker | null>(null);
   const [activeStream, setActiveStream] = useState<MediaStream | null>(null);
 
-  // Live on-screen cursor
+  // Virtual cursor position & dwell state for on-screen tracking
   const [cursorPos, setCursorPos] = useState<{ x: number; y: number }>({ x: 400, y: 300 });
   const [cursorVisible, setCursorVisible] = useState<boolean>(false);
-  const [activeGesture, setActiveGesture] = useState<string>("Head Tracking (Active)");
-  const [clickNotice, setClickNotice] = useState<boolean>(false);
+  const [activeGesture, setActiveGesture] = useState<string>("Head Motion");
 
   // Bubble-pop calibration targets
   const [bubbles, setBubbles] = useState<Bubble[]>([
@@ -47,6 +48,16 @@ export const OnboardingApp: React.FC = () => {
 
   const [voiceTestPassed, setVoiceTestPassed] = useState<boolean>(false);
   const [gestureTestPassed, setGestureTestPassed] = useState<boolean>(false);
+
+  // Voice Sandbox Playground State (Step 4)
+  const [lastTranscript, setLastTranscript] = useState<string>("");
+  const [lastExecutedCommand, setLastExecutedCommand] = useState<string>("");
+  const [sandboxInputText, setSandboxInputText] = useState<string>("");
+  const [activeNumberBadge, setActiveNumberBadge] = useState<number | null>(null);
+  const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
+  const [voiceErrorMsg, setVoiceErrorMsg] = useState<string | null>(null);
+  const [lastOpenedUrl, setLastOpenedUrl] = useState<string | null>(null);
+  const sandboxScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Expose the current step to the tracker callback without recreating the tracker.
   const stepRef = useRef<number>(step);
@@ -73,12 +84,18 @@ export const OnboardingApp: React.FC = () => {
 
       if (landmarks.gestures.length > 0) {
         setActiveGesture(landmarks.gestures.join(", "));
-        if (landmarks.gestures.includes("nod") || landmarks.gestures.includes("open_palm")) {
-          setClickNotice(true);
-          setTimeout(() => setClickNotice(false), 300);
-        }
       } else {
         setActiveGesture("Head Tracking (Active)");
+      }
+
+      // Relay landmarks to the active tab via the background service worker
+      try {
+        void chrome.runtime.sendMessage({
+          type: "TRACKING_LANDMARKS",
+          payload: landmarks,
+        });
+      } catch {
+        // Safe ignore
       }
 
       const currentStep = stepRef.current;
@@ -121,6 +138,7 @@ export const OnboardingApp: React.FC = () => {
         faceTracker.start(handleFrame);
         tracker = faceTracker;
       } catch (err) {
+        // Fall back to the lightweight optical tracker if the model cannot load.
         console.warn("MediaPipe face tracker unavailable, using optical fallback", err);
         if (cancelled) return;
         const optical = new FastCameraTracker(sourceVideo);
@@ -162,7 +180,108 @@ export const OnboardingApp: React.FC = () => {
     };
   }, [activeStream]);
 
-  // Request camera and microphone access
+  // Step 4: Active speech recognition & voice command sandbox runner
+  useEffect(() => {
+    if (step !== 4) return;
+
+    const voiceManager = getVoiceManager();
+
+    // Ensure audio permissions are active
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then((micStream) => {
+        // Keep microphone warm
+        micStream.getAudioTracks().forEach((t) => (t.enabled = true));
+      }).catch((err) => {
+        console.warn("Microphone access warning:", err);
+      });
+    }
+
+    voiceManager.startListening();
+
+    const unsubState = voiceManager.onStateChange((state) => {
+      setIsVoiceListening(state.listening && !state.isPaused);
+      setVoiceErrorMsg(state.error ?? null);
+    });
+
+    const unsubscribe = voiceManager.onTranscript((event) => {
+      if (!event.text) return;
+      const text = event.text.trim();
+      setLastTranscript(text);
+      setVoiceTestPassed(true);
+
+      // Check command matching
+      const match = matchCommand(text, event.locale);
+
+      if (match) {
+        const actionType = match.command.action.type;
+        setLastExecutedCommand(match.command.phrase);
+        soundEffects.playBubblePop();
+
+        // 1. Scroll command
+        if (actionType === "scroll") {
+          const dir = (match.command.action as { direction?: string }).direction === "up" ? -1 : 1;
+          if (sandboxScrollRef.current) {
+            sandboxScrollRef.current.scrollBy({ top: dir * 180, behavior: "smooth" });
+          }
+          window.scrollBy({ top: dir * 250, behavior: "smooth" });
+        }
+        // 2. Click number command (e.g., "14", "click 14", "number 14")
+        else if (actionType === "click_number") {
+          const num = match.extractedNumber ?? (match.command.action as { n?: number }).n;
+          if (num !== undefined) {
+            setActiveNumberBadge(num);
+            soundEffects.playStepSuccess();
+            setTimeout(() => setActiveNumberBadge(null), 1400);
+          }
+        }
+        // 3. New line
+        else if (actionType === "new_line") {
+          setSandboxInputText((prev) => prev + "\n");
+        }
+        // 4. Delete last word
+        else if (actionType === "delete_last_word") {
+          setSandboxInputText((prev) => {
+            const words = prev.trimEnd().split(" ");
+            words.pop();
+            return words.join(" ");
+          });
+        }
+        // 5. Dictate controls
+        else if (actionType === "dictate_start") {
+          voiceManager.setDictating(true);
+        } else if (actionType === "dictate_stop") {
+          voiceManager.setDictating(false);
+        }
+        // 6. Website navigation
+        else if (actionType === "open_url") {
+          const url = (match.command.action as { url?: string }).url ?? "";
+          if (url) {
+            setLastOpenedUrl(url);
+            setLastExecutedCommand(`Navigate → ${url}`);
+            soundEffects.playStepSuccess();
+            setVoiceTestPassed(true);
+            // Navigate after a short preview delay
+            setTimeout(() => { window.location.href = url; }, 1200);
+          }
+        }
+      } else {
+        // Direct speech typing into text box when speaking phrases like "how are you"
+        if (event.isFinal) {
+          setLastExecutedCommand(`Typed: "${text}"`);
+          setSandboxInputText((prev) => (prev ? `${prev} ${text}` : text));
+          soundEffects.playBubblePop();
+        }
+      }
+    });
+
+    return () => {
+      unsubState();
+      unsubscribe();
+      voiceManager.stopListening();
+    };
+  }, [step]);
+
+  // 1. Request camera & mic permission
   const handleRequestPermissions = async () => {
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -179,18 +298,20 @@ export const OnboardingApp: React.FC = () => {
       } else {
         setPermissionGranted(true);
       }
-    } catch {
+    } catch (err) {
       setPermissionError(
-        "Camera access was dismissed or blocked. You can still test with simulated controls."
+        "Camera or Microphone permission was dismissed or blocked. You can still test with simulated tracking."
       );
       setPermissionGranted(true);
     }
   };
 
+  // 2. Handle bubble click fallback
   const handlePopBubble = (id: number) => {
     soundEffects.playBubblePop();
     const updated = bubbles.map((b) => (b.id === id ? { ...b, popped: true } : b));
     setBubbles(updated);
+
     if (updated.every((b) => b.popped)) {
       soundEffects.playStepSuccess();
     }
@@ -198,6 +319,7 @@ export const OnboardingApp: React.FC = () => {
 
   const allBubblesPopped = bubbles.every((b) => b.popped);
 
+  // 3. Complete tutorial
   const handleFinish = async () => {
     soundEffects.playCelebration();
     await saveSettings({ trackingEnabled: true, voiceEnabled: true });
@@ -208,19 +330,15 @@ export const OnboardingApp: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between selection:bg-indigo-500 selection:text-white font-sans relative overflow-x-hidden">
-      {/* Responsive Virtual Cursor */}
+      {/* Real-time Handsfree Virtual Cursor */}
       {cursorVisible && (
         <div
           style={{
             transform: `translate3d(${cursorPos.x}px, ${cursorPos.y}px, 0)`,
           }}
-          className={`fixed top-0 left-0 pointer-events-none z-50 -ml-4 -mt-4 w-9 h-9 rounded-full transition-transform duration-[25ms] ease-out flex items-center justify-center ${
-            clickNotice
-              ? "bg-emerald-400/80 border-2 border-white scale-125 shadow-[0_0_25px_rgba(52,211,153,1)]"
-              : "bg-cyan-500/40 border-2 border-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.8)]"
-          }`}
+          className="fixed top-0 left-0 pointer-events-none z-50 -ml-3 -mt-3 w-7 h-7 rounded-full bg-cyan-400/40 border-2 border-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.8)] transition-transform duration-[40ms] ease-out flex items-center justify-center"
         >
-          <div className="text-[12px]">{clickNotice ? "💥" : "🎯"}</div>
+          <div className="w-1.5 h-1.5 rounded-full bg-white shadow-sm animate-ping" />
         </div>
       )}
 
@@ -237,19 +355,20 @@ export const OnboardingApp: React.FC = () => {
           </div>
           <div>
             <h1 className="font-bold text-lg tracking-wide text-white font-display">Handsfree</h1>
-            <p className="text-xs text-slate-400">Head Tracking & Voice Control</p>
+            <p className="text-xs text-slate-400">Interactive Setup & Calibration</p>
           </div>
         </div>
 
-        {/* Live HUD Pill showing tracking status */}
+        {/* Live HUD Pill showing current tracking state */}
         <div className="flex items-center gap-4">
           {permissionGranted && (
-            <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-full text-xs text-slate-200">
+            <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1 rounded-full text-xs text-slate-300">
               <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
               <span>{activeGesture}</span>
             </div>
           )}
 
+          {/* Step indicator pills */}
           <div className="flex items-center gap-2">
             {[1, 2, 3, 4, 5].map((i) => (
               <div
@@ -267,21 +386,21 @@ export const OnboardingApp: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Main interactive area */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-8 flex flex-col justify-center z-10">
-        {/* Step 1: Camera Permission */}
+        {/* Step 1: Camera & Microphone Permissions */}
         {step === 1 && (
           <div className="text-center space-y-6 max-w-xl mx-auto">
-            <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400">
-              👤
+            <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400 shadow-inner">
+              📷
             </div>
             <div>
               <h2 className="text-3xl font-extrabold tracking-tight text-white font-display">
-                Head Tracking & Voice Control
+                Camera & Microphone Access
               </h2>
               <p className="text-sm text-slate-400 mt-2 leading-relaxed">
-                Control your screen naturally with subtle head movements and speech commands.
-                All camera processing runs 100% locally on your device.
+                Handsfree uses your webcam to track subtle head movements for cursor positioning and
+                your microphone for speech commands. Video and audio streams never leave your device.
               </p>
             </div>
 
@@ -296,7 +415,7 @@ export const OnboardingApp: React.FC = () => {
                 onClick={handleRequestPermissions}
                 className="px-6 py-3.5 bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white font-semibold rounded-xl shadow-lg shadow-indigo-500/30 transition transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
               >
-                Allow Camera & Mic Access
+                Allow Access & Start Camera
               </button>
             ) : (
               <div className="space-y-5">
@@ -315,7 +434,7 @@ export const OnboardingApp: React.FC = () => {
                 </div>
 
                 <div className="inline-flex items-center gap-2 text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-4 py-2 rounded-xl text-sm font-medium">
-                  <span>✓</span> Tracking Active
+                  <span>✓</span> Hardware Verified & Camera Active
                 </div>
                 <div>
                   <button
@@ -333,7 +452,7 @@ export const OnboardingApp: React.FC = () => {
           </div>
         )}
 
-        {/* Step 2: Bubble Pop Calibration */}
+        {/* Step 2: 30-Second Bubble-Pop Calibration Game with Active Head Tracking */}
         {step === 2 && (
           <div className="relative min-h-[500px] rounded-2xl border border-slate-800 bg-slate-900/50 p-6 flex flex-col justify-between overflow-hidden backdrop-blur shadow-2xl">
             <div className="flex items-center justify-between z-20">
@@ -361,7 +480,7 @@ export const OnboardingApp: React.FC = () => {
               )}
             </div>
 
-            {/* Floating bubbles */}
+            {/* Interactive floating bubbles canvas */}
             <div className="absolute inset-0 pointer-events-none">
               {bubbles.map((b) =>
                 !b.popped ? (
@@ -402,26 +521,63 @@ export const OnboardingApp: React.FC = () => {
                     : "bg-slate-800 text-slate-500 cursor-not-allowed"
                 }`}
               >
-                Next Step: Select & Click →
+                Next Step: Dwell & Nod →
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Dwell / Nod Click Test */}
+        {/* Step 3: Dwell & Nod Selection */}
         {step === 3 && (
           <div className="text-center space-y-6 max-w-xl mx-auto">
             <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400">
               🎯
             </div>
             <div>
-              <h2 className="text-3xl font-extrabold text-white font-display">Nod or Dwell to Select</h2>
+              <h2 className="text-3xl font-extrabold text-white font-display">Dwell or Nod to Click</h2>
               <p className="text-sm text-slate-400 mt-2">
-                Move your cursor over the button below and <strong>dwell (hold still)</strong> or <strong>nod</strong> to click!
+                Rest your head cursor on any target for 800 ms to trigger a dwell click, or give a quick
+                nod to select immediately without waiting.
               </p>
             </div>
 
-            <div className="p-8 rounded-2xl border border-slate-800 bg-slate-900/40 flex items-center justify-center">
+            {/* Gesture Guide Demo Cards */}
+            <div className="grid grid-cols-2 gap-3 text-left">
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60">
+                <div className="font-semibold text-xs text-indigo-400 flex items-center gap-1.5">
+                  <span>⏱️</span> Dwell Click
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  Keep your head cursor stationary over any button for <strong>800 ms</strong> to click automatically.
+                </div>
+              </div>
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60">
+                <div className="font-semibold text-xs text-cyan-400 flex items-center gap-1.5">
+                  <span>👇</span> Nod to Select
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  A subtle downward head nod immediately confirms the selection without waiting for the timer.
+                </div>
+              </div>
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60">
+                <div className="font-semibold text-xs text-emerald-400 flex items-center gap-1.5">
+                  <span>👁️</span> Double Blink = Click
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  Blink both eyes twice quickly (within 500 ms) to click whatever your head cursor is pointing at.
+                </div>
+              </div>
+              <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60">
+                <div className="font-semibold text-xs text-amber-400 flex items-center gap-1.5">
+                  <span>🌐</span> Voice Navigation
+                </div>
+                <div className="text-[11px] text-slate-300 mt-1">
+                  Say <strong className="text-white">"open youtube"</strong> or <strong className="text-white">"search google"</strong> to navigate to any website hands-free.
+                </div>
+              </div>
+            </div>
+
+            <div className="p-8 rounded-2xl border border-slate-800 bg-slate-900/40 flex items-center justify-center gap-4">
               <button
                 onClick={() => {
                   soundEffects.playBubblePop();
@@ -433,7 +589,7 @@ export const OnboardingApp: React.FC = () => {
                     : "bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40"
                 }`}
               >
-                {gestureTestPassed ? "✓ Selection Confirmed!" : "Test Target: Dwell or Nod Here"}
+                {gestureTestPassed ? "✓ Target Activated!" : "Test Target: Dwell (Hold Still) or Click Here"}
               </button>
             </div>
 
@@ -454,43 +610,209 @@ export const OnboardingApp: React.FC = () => {
           </div>
         )}
 
-        {/* Step 4: Voice Commands */}
+        {/* Step 4: Voice Commands Test & Interactive Sandbox */}
         {step === 4 && (
-          <div className="text-center space-y-6 max-w-xl mx-auto">
-            <div className="h-20 w-20 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400">
+          <div className="text-center space-y-5 max-w-2xl mx-auto">
+            <div className="h-16 w-16 mx-auto rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-3xl text-indigo-400">
               🎙️
             </div>
             <div>
-              <h2 className="text-3xl font-extrabold text-white font-display">Voice Commands in Action</h2>
-              <p className="text-sm text-slate-400 mt-2">
-                Handsfree pairs head tracking with voice commands. Speak or click below:
+              <h2 className="text-2xl font-extrabold text-white font-display">Voice Commands Sandbox</h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Say commands naturally in English or Hindi. Handsfree translates your voice to action instantly.
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-left">
+            {/* Live Voice Status Pill */}
+            <div className="flex flex-wrap items-center justify-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-slate-300">
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    isVoiceListening ? "bg-emerald-400 animate-pulse" : "bg-amber-400"
+                  }`}
+                />
+                <span>Mic: {isVoiceListening ? "Listening" : "Connecting..."}</span>
+                <span className="text-slate-600">|</span>
+                <span>Last Heard: </span>
+                <span className="font-semibold text-cyan-300">
+                  {lastTranscript ? `"${lastTranscript}"` : "(Speak into mic...)"}
+                </span>
+              </div>
+              {lastExecutedCommand && (
+                <div className="px-3 py-1.5 rounded-full bg-indigo-950/80 border border-indigo-500/40 text-xs font-semibold text-indigo-300">
+                  ⚡ {lastExecutedCommand}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  const vm = getVoiceManager();
+                  vm.stopListening();
+                  setTimeout(() => vm.startListening(), 100);
+                }}
+                title="Restart speech recognition engine"
+                className="px-2.5 py-1 rounded-full bg-slate-800 hover:bg-slate-700 text-[10px] text-slate-300 border border-slate-700 transition"
+              >
+                🔄 Reset Mic
+              </button>
+            </div>
+
+            {voiceErrorMsg && (
+              <div className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-lg inline-block">
+                Mic status: {voiceErrorMsg} (recovering automatically...)
+              </div>
+            )}
+
+            {/* Interactive Sandbox Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
+              {/* 1. Voice Dictation Test Box */}
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/70 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                      <span>✍️</span> Voice Dictation Box
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setSandboxInputText("")}
+                      className="text-[10px] text-slate-400 hover:text-rose-400 transition"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400 mb-2">
+                    Say <strong className="text-white">"how are you"</strong> or any sentence to type directly into this box:
+                  </p>
+                  <textarea
+                    rows={3}
+                    value={sandboxInputText}
+                    onChange={(e) => setSandboxInputText(e.target.value)}
+                    placeholder='Say "how are you" to test voice typing...'
+                    className="w-full text-xs bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition resize-none font-mono"
+                  />
+                </div>
+                <div className="text-[10px] text-slate-500 mt-2">
+                  Say <em>"new line"</em> or <em>"delete last word"</em> to edit.
+                </div>
+              </div>
+
+              {/* 2. Scrollable Sandbox Box */}
+              <div className="p-4 rounded-xl border border-slate-800 bg-slate-900/70 flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs font-bold text-cyan-300 flex items-center gap-1.5">
+                      <span>📜</span> Scroll Test Area
+                    </div>
+                    <span className="text-[10px] text-slate-400">Say "scroll down"</span>
+                  </div>
+                  <div
+                    ref={sandboxScrollRef}
+                    className="h-28 overflow-y-auto bg-slate-950 border border-slate-700 rounded-lg p-2.5 text-[11px] text-slate-300 space-y-2 scroll-smooth"
+                  >
+                    <p className="text-indigo-400 font-semibold">1. Start of scroll demo</p>
+                    <p>Handsfree supports high-precision handsfree scrolling on web documents and containers.</p>
+                    <p className="text-cyan-400">2. Say "scroll down" to glide through content smoothly.</p>
+                    <p>Commands are processed locally with near-zero latency.</p>
+                    <p className="text-emerald-400">3. Say "scroll up" to return to the top.</p>
+                    <p className="text-slate-500">End of scroll demonstration area.</p>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center text-[10px] text-slate-500 mt-2">
+                  <span>Try: <em>"scroll down"</em> or <em>"scroll up"</em></span>
+                  <div className="space-x-1">
+                    <button
+                      type="button"
+                      onClick={() => sandboxScrollRef.current?.scrollBy({ top: 120, behavior: "smooth" })}
+                      className="text-slate-400 hover:text-white px-1.5 py-0.5 rounded bg-slate-800 text-[10px]"
+                    >
+                      ↓ Down
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => sandboxScrollRef.current?.scrollBy({ top: -120, behavior: "smooth" })}
+                      className="text-slate-400 hover:text-white px-1.5 py-0.5 rounded bg-slate-800 text-[10px]"
+                    >
+                      ↑ Up
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Numbered Targets (Includes #14!) */}
+            <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60 text-left">
+              <div className="flex items-center justify-between mb-2">
+                <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>🔢</span> Numbered Target Badges (Say "click 14" or "14 number")
+                </div>
+                <span className="text-[10px] text-indigo-400 font-medium">Say number to trigger</span>
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                {[1, 2, 3, 4, 10, 14].map((n) => {
+                  const isSelected = activeNumberBadge === n;
+                  return (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => {
+                        setActiveNumberBadge(n);
+                        soundEffects.playStepSuccess();
+                        setLastExecutedCommand(`Clicked Badge #${n}`);
+                        setTimeout(() => setActiveNumberBadge(null), 1400);
+                      }}
+                      className={`relative py-2 px-3 rounded-lg border text-center transition cursor-pointer ${
+                        isSelected
+                          ? "bg-emerald-500/30 border-emerald-400 text-emerald-200 scale-105 shadow-md shadow-emerald-500/20"
+                          : "bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-600"
+                      }`}
+                    >
+                      <span className="absolute -top-1.5 -left-1.5 bg-indigo-600 text-white font-bold text-[9px] rounded-full w-4 h-4 flex items-center justify-center shadow">
+                        {n}
+                      </span>
+                      <span className="text-xs font-medium">Target {n}</span>
+                      {isSelected && <span className="block text-[9px] text-emerald-400 font-bold">✓ CLICKED</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Quick voice command cheatsheet buttons */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-left">
               {[
-                { en: 'Say "scroll down"', hi: 'या "नीचे scroll करो"' },
-                { en: 'Say "click this"', hi: 'या "यह click करो"' },
-                { en: 'Say "show numbers"', hi: 'या "numbers दिखाओ"' },
-                { en: 'Say "pause listening"', hi: 'या "सुनना बंद करो"' },
+                { en: 'Say "scroll down"', act: () => sandboxScrollRef.current?.scrollBy({ top: 120, behavior: "smooth" }) },
+                { en: 'Say "how are you"', act: () => setSandboxInputText((p) => (p ? `${p} how are you` : "how are you")) },
+                { en: 'Say "click 14"', act: () => { setActiveNumberBadge(14); soundEffects.playStepSuccess(); setTimeout(() => setActiveNumberBadge(null), 1400); } },
+                { en: 'Say "delete last word"', act: () => setSandboxInputText((p) => p.trimEnd().split(" ").slice(0, -1).join(" ")) },
+                { en: 'Say "open youtube"', act: () => { setLastOpenedUrl("https://www.youtube.com"); setLastExecutedCommand("Navigate → youtube.com"); soundEffects.playStepSuccess(); setVoiceTestPassed(true); } },
+                { en: 'Say "open google"', act: () => { setLastOpenedUrl("https://www.google.com"); setLastExecutedCommand("Navigate → google.com"); soundEffects.playStepSuccess(); setVoiceTestPassed(true); } },
               ].map((item, idx) => (
                 <div
                   key={idx}
                   onClick={() => {
+                    item.act();
                     soundEffects.playBubblePop();
                     setVoiceTestPassed(true);
                   }}
-                  className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/60 hover:border-indigo-500/50 cursor-pointer transition"
+                  className="p-2.5 rounded-lg border border-slate-800/80 bg-slate-900/40 hover:border-indigo-500/50 cursor-pointer transition text-center"
                 >
-                  <div className="font-semibold text-xs text-white">{item.en}</div>
-                  <div className="text-[11px] text-slate-400 mt-0.5">{item.hi}</div>
+                  <div className="font-semibold text-[11px] text-slate-200">{item.en}</div>
+                  <div className="text-[9px] text-indigo-400 mt-0.5">Click or speak to test</div>
                 </div>
               ))}
             </div>
 
+            {/* Website navigation preview banner */}
+            {lastOpenedUrl && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-300">
+                <span>🌐</span>
+                <span>Navigating to <strong className="text-white">{lastOpenedUrl}</strong>…</span>
+              </div>
+            )}
+
             {voiceTestPassed && (
               <div className="text-xs text-emerald-400 font-medium">
-                ✓ Voice command confirmed!
+                ✓ Voice command and dictation tested successfully!
               </div>
             )}
 
@@ -506,12 +828,12 @@ export const OnboardingApp: React.FC = () => {
                   : "bg-slate-800 text-slate-500 cursor-not-allowed"
               }`}
             >
-              Finish Setup →
+              Complete Tutorial →
             </button>
           </div>
         )}
 
-        {/* Step 5: Completed */}
+        {/* Step 5: Ready & Celebration */}
         {step === 5 && (
           <div className="text-center space-y-6 max-w-xl mx-auto">
             <div className="h-20 w-20 mx-auto rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-4xl text-emerald-400">
@@ -520,8 +842,8 @@ export const OnboardingApp: React.FC = () => {
             <div>
               <h2 className="text-3xl font-extrabold text-white font-display">You're All Set!</h2>
               <p className="text-sm text-slate-400 mt-2 leading-relaxed">
-                Head tracking and Point-and-Say voice control are configured. Move your head to position the pointer,
-                say "click this" or hold still to click, and use voice commands at any time.
+                Handsfree is fully configured and ready. You can pause listening at any time by saying
+                "pause listening", or adjust dwell sensitivity in the Options control panel.
               </p>
             </div>
 
@@ -537,8 +859,9 @@ export const OnboardingApp: React.FC = () => {
         )}
       </main>
 
+      {/* Footer Notice */}
       <footer className="px-8 py-4 border-t border-slate-800/80 bg-slate-900/20 text-center text-xs text-slate-500">
-        Privacy Guaranteed • On-device computer vision • Handsfree v0.1.0
+        Privacy Guaranteed • Real-time on-device computer vision • Handsfree v0.1.0
       </footer>
     </div>
   );
